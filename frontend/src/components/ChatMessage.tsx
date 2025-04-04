@@ -140,27 +140,33 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
     <div 
       className={cn(
         "py-4 px-4 md:px-8 flex gap-4",
+        message.role === "user" ? "justify-end" : "justify-start",
         "message-appear",
         isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
         isLast ? "pb-8" : ""
       )}
     >
-      {/* Avatar */}
-      <div className="flex-shrink-0 mt-1">
-        <div className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center",
-          message.role === "assistant" 
-            ? "bg-accent/10 text-accent" 
-            : "bg-primary/10 text-primary"
-        )}>
-          {message.role === "assistant" ? <Bot size={18} /> : <User size={18} />}
+      {/* Avatar - Only show for assistant messages */}
+      {message.role === "assistant" && (
+        <div className="flex-shrink-0 mt-1">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-accent/10 text-accent">
+            <Bot size={18} />
+          </div>
         </div>
-      </div>
+      )}
       
       {/* Message content */}
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium mb-1 text-muted-foreground">
-          {message.role === "assistant" ? "Chatbot" : "You"}
+      <div className={cn("flex-1 min-w-0", message.role === "user" ? "flex flex-col items-end" : "")}>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="text-sm font-medium text-muted-foreground">
+            {message.role === "assistant" ? "JAMAL" : "You"}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {new Date(message.timestamp).toLocaleTimeString([], { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })}
+          </div>
         </div>
         
         {message.type === 'link' ? (
@@ -175,15 +181,16 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
             {renderMessageContent()}
           </div>
         )}
-
-        {/* Timestamp */}
-        <div className="text-xs text-muted-foreground mt-1">
-          {new Date(message.timestamp).toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })}
-        </div>
       </div>
+
+      {/* Avatar - Only show for user messages */}
+      {message.role === "user" && (
+        <div className="flex-shrink-0 mt-1">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-primary/10 text-primary">
+            <User size={18} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
