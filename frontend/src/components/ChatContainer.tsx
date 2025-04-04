@@ -21,15 +21,18 @@ interface ChatContainerProps {
   }>;
   chatTitle: string;
   setChatTitle: (title: string) => void;
+  messages: Message[];
+  onSendMessage: (message: Message) => void;
 }
 
 export default function ChatContainer({
   selectedDocuments,
   selectedLinks,
   chatTitle,
-  setChatTitle
+  setChatTitle,
+  messages,
+  onSendMessage
 }: ChatContainerProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,8 +45,8 @@ export default function ChatContainer({
   }, [messages]);
 
   const handleSendMessage = async (message: Message) => {
-    setMessages((prev) => [...prev, message]);
     setIsLoading(true);
+    onSendMessage(message);
 
     try {
       // Prepare context from selected documents and links
@@ -78,12 +81,7 @@ export default function ChatContainer({
         timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, assistantMessage]);
-      
-      // Update chat title based on first message if it's still "New Chat"
-      if (chatTitle === "New Chat" && messages.length === 0) {
-        setChatTitle(message.content.slice(0, 30) + (message.content.length > 30 ? "..." : ""));
-      }
+      onSendMessage(assistantMessage);
     } catch (error) {
       console.error("Error sending message:", error);
       const errorMessage: Message = {
@@ -93,7 +91,7 @@ export default function ChatContainer({
         type: "text",
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      onSendMessage(errorMessage);
     } finally {
       setIsLoading(false);
     }

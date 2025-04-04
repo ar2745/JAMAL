@@ -1,16 +1,16 @@
 import { cn } from "@/lib/utils";
+import { Chat, Message } from "@/types";
 import {
+    Activity,
     Cpu,
     FileText,
-    Home,
     Link as LinkIcon,
     MessageSquare,
     PlusCircle,
-    Settings
+    Settings,
+    Trash2
 } from "lucide-react";
 import { ReactNode } from "react";
-import { FileList } from "./FileList";
-import { LinkList } from "./LinkList";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 
@@ -61,6 +61,11 @@ interface SidebarProps {
   onDeleteLink: (id: string) => void;
   onSelectDocument: (id: string, selected: boolean) => void;
   onSelectLink: (id: string, selected: boolean) => void;
+  chats: Chat[];
+  currentChatId: string | null;
+  onChatSelect: (chatId: string) => void;
+  onCreateNewChat: () => void;
+  onDeleteChat: (chatId: string) => void;
 }
 
 export default function Sidebar({
@@ -72,8 +77,19 @@ export default function Sidebar({
   onDeleteDocument,
   onDeleteLink,
   onSelectDocument,
-  onSelectLink
+  onSelectLink,
+  chats,
+  currentChatId,
+  onChatSelect,
+  onCreateNewChat,
+  onDeleteChat
 }: SidebarProps) {
+  const getLastMessagePreview = (messages: Message[]) => {
+    if (messages.length === 0) return 'No messages yet';
+    const lastMessage = messages[messages.length - 1];
+    return lastMessage.content.slice(0, 30) + (lastMessage.content.length > 30 ? "..." : "");
+  };
+
   return (
     <div className="flex flex-col h-full bg-sidebar w-72 border-r border-sidebar-border">
       {/* Header */}
@@ -89,64 +105,96 @@ export default function Sidebar({
 
       {/* New Chat button */}
       <div className="px-3 py-4">
-        <Button className="w-full gap-2">
+        <Button className="w-full gap-2" onClick={onCreateNewChat}>
           <PlusCircle size={18} />
           <span>New Chat</span>
         </Button>
       </div>
 
-      {/* Navigation */}
-      <ScrollArea className="flex-1 px-3 py-2">
-        <div className="space-y-1">
-          <SidebarItem 
-            icon={<Home size={18} />} 
-            label="Dashboard" 
-            active={activeSection === 'dashboard'} 
-            onClick={() => setActiveSection('dashboard')}
-          />
-          <SidebarItem 
-            icon={<MessageSquare size={18} />} 
-            label="Chat" 
-            active={activeSection === 'chat'} 
-            onClick={() => setActiveSection('chat')}
-          />
-          <SidebarItem 
-            icon={<FileText size={18} />} 
-            label="Files" 
-            active={activeSection === 'files'} 
-            onClick={() => setActiveSection('files')}
-          />
-          <SidebarItem 
-            icon={<LinkIcon size={18} />} 
-            label="Links" 
-            active={activeSection === 'links'} 
-            onClick={() => setActiveSection('links')}
-          />
-          <SidebarItem 
-            icon={<Settings size={18} />} 
-            label="Settings" 
-            active={activeSection === 'settings'} 
-            onClick={() => setActiveSection('settings')}
-          />
+      {/* Chat History */}
+      <ScrollArea className="flex-1">
+        <div className="space-y-1 px-2">
+          {chats.map((chat) => (
+            <div
+              key={chat.id}
+              className={cn(
+                "group flex items-center gap-2 p-2 rounded-md cursor-pointer hover:bg-accent/10",
+                currentChatId === chat.id && "bg-accent/10"
+              )}
+              onClick={() => {
+                onChatSelect(chat.id);
+                setActiveSection('chat');
+              }}
+            >
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{chat.title}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {getLastMessagePreview(chat.messages)}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteChat(chat.id);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
         </div>
       </ScrollArea>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-hidden border-t border-sidebar-border">
-        {activeSection === 'files' && (
-          <FileList
-            documents={documents}
-            onDelete={onDeleteDocument}
-            onSelect={onSelectDocument}
-          />
-        )}
-        {activeSection === 'links' && (
-          <LinkList
-            links={links}
-            onDelete={onDeleteLink}
-            onSelect={onSelectLink}
-          />
-        )}
+      {/* Navigation */}
+      <div className="p-2 border-t border-sidebar-border">
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            activeSection === 'dashboard' && "bg-accent/10"
+          )}
+          onClick={() => setActiveSection('dashboard')}
+        >
+          <Activity className="h-4 w-4" />
+          <span>Dashboard</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            activeSection === 'files' && "bg-accent/10"
+          )}
+          onClick={() => setActiveSection('files')}
+        >
+          <FileText className="h-4 w-4" />
+          <span>Files</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            activeSection === 'links' && "bg-accent/10"
+          )}
+          onClick={() => setActiveSection('links')}
+        >
+          <LinkIcon className="h-4 w-4" />
+          <span>Links</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            activeSection === 'settings' && "bg-accent/10"
+          )}
+          onClick={() => setActiveSection('settings')}
+        >
+          <Settings className="h-4 w-4" />
+          <span>Settings</span>
+        </Button>
       </div>
     </div>
   );

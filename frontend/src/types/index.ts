@@ -16,6 +16,16 @@ export interface Message {
   };
 }
 
+export interface Chat {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: string;
+  updatedAt: string;
+  selectedDocuments?: string[];
+  selectedLinks?: string[];
+}
+
 export interface Conversation {
   id: string;
   title: string;
