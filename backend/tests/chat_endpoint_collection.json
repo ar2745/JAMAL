@@ -1,0 +1,276 @@
+{
+    "info": {
+        "name": "Chat Endpoint Tests",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "description": "This collection contains tests for the chat endpoint.",
+        "base_url": "http://localhost:5000"
+    },
+    "item": [
+        {
+            "name": "Basic Chat",
+            "item": [
+                {
+                    "name": "Simple Chat",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"Hello, how are you?\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Empty Message",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Long Message",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"a\".repeat(513)\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Reasoning",
+            "item": [
+                {
+                    "name": "Simple Reasoning",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"What is the meaning of life?\",\n    \"reasoning\": true\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Document Context",
+            "item": [
+                {
+                    "name": "With Document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"What does this document say about X?\",\n    \"document\": \"{{test_document}}\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Invalid Document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"What does this document say?\",\n    \"document\": \"nonexistent.pdf\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Link Context",
+            "item": [
+                {
+                    "name": "With Link",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"What does this webpage say about Y?\",\n    \"link\": \"{{test_link}}\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Invalid Link",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"What does this webpage say?\",\n    \"link\": \"nonexistent.json\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Combined Context",
+            "item": [
+                {
+                    "name": "Document and Link",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"Compare the information from both sources\",\n    \"document\": \"{{test_document}}\",\n    \"link\": \"{{test_link}}\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Memory Context",
+            "item": [
+                {
+                    "name": "With Memories",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"Based on our previous conversation\",\n    \"memories\": [\n        {\n            \"userMessage\": {\"text\": \"Previous question\"},\n            \"botMessage\": {\"text\": \"Previous answer\"}\n        }\n    ]\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Special Commands",
+            "item": [
+                {
+                    "name": "Goodbye",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/chat",
+                            "host": ["{{base_url}}"],
+                            "path": ["chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"/bye\"\n}"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+} 
