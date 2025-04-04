@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Message } from "@/types";
+import { FileMetadata, LinkMetadata, Message } from "@/types";
 import { Bot, FileText, Link, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -7,6 +7,14 @@ import ReactMarkdown from "react-markdown";
 interface ChatMessageProps {
   message: Message;
   isLast?: boolean;
+}
+
+function isFileMetadata(metadata: any): metadata is FileMetadata {
+  return metadata && 'fileName' in metadata;
+}
+
+function isLinkMetadata(metadata: any): metadata is LinkMetadata {
+  return metadata && 'url' in metadata;
 }
 
 export default function ChatMessage({ message, isLast = false }: ChatMessageProps) {
@@ -21,59 +29,101 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
     return () => clearTimeout(timer);
   }, []);
 
-  const renderMessageContent = () => {
-    switch (message.type) {
-      case 'file':
-        return (
-          <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-            <FileText className="w-5 h-5 text-muted-foreground" />
-            <div className="flex flex-col">
-              <span className="font-medium">{message.metadata?.fileName}</span>
-              <span className="text-xs text-muted-foreground">
-                {message.metadata?.fileType} • {(message.metadata?.fileSize || 0) / 1024} KB
+  const renderFileMessage = (metadata: FileMetadata) => {
+    return (
+      <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+        <FileText className="w-5 h-5 text-muted-foreground" />
+        <div className="flex flex-col">
+          <span className="font-medium">{metadata.fileName}</span>
+          <span className="text-xs text-muted-foreground">
+            {metadata.fileType} • {metadata.fileSize / 1024} KB
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderLinkMessage = (metadata: LinkMetadata) => {
+    return (
+      <div className="w-full max-w-lg">
+        <a 
+          href={metadata.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="block border rounded-lg overflow-hidden bg-card hover:bg-accent/5 transition-colors"
+        >
+          {/* Optional Image - Only shown if available and loads successfully */}
+          {metadata.image && (
+            <div className="h-32 relative bg-muted">
+              <img 
+                src={metadata.image} 
+                alt=""
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const parent = e.currentTarget.parentElement;
+                  if (parent) {
+                    parent.style.display = 'none';
+                  }
+                }}
+              />
+            </div>
+          )}
+          
+          {/* Content Section */}
+          <div className="p-3 space-y-2">
+            {/* Title */}
+            <h3 className="font-medium text-sm text-card-foreground line-clamp-2">
+              {metadata.title || 'Visit Link'}
+            </h3>
+            
+            {/* Description - Only shown if available */}
+            {metadata.description && (
+              <p className="text-xs text-muted-foreground line-clamp-2">
+                {metadata.description}
+              </p>
+            )}
+            
+            {/* URL Display */}
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Link className="w-3 h-3" />
+              <span className="truncate">
+                {new URL(metadata.url).hostname}
               </span>
             </div>
           </div>
-        );
+        </a>
+      </div>
+    );
+  };
+
+  const renderMessageContent = () => {
+    console.log('Rendering message:', message);
+    
+    if (!message.metadata) {
+      console.log('No metadata, rendering as plain text');
+      return <p className="whitespace-pre-wrap break-words">{message.content}</p>;
+    }
+
+    switch (message.type) {
+      case 'file':
+        if (!isFileMetadata(message.metadata)) {
+          console.log('Invalid file metadata, rendering as plain text');
+          return <p className="whitespace-pre-wrap break-words">{message.content}</p>;
+        }
+        console.log('Rendering file message');
+        return renderFileMessage(message.metadata);
       
       case 'link':
-        return (
-          <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg">
-            <div className="flex items-center gap-2">
-              <Link className="w-5 h-5 text-muted-foreground" />
-              <div className="flex flex-col">
-                <a 
-                  href={message.metadata?.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="font-medium hover:underline text-primary"
-                >
-                  {message.metadata?.title || message.metadata?.url}
-                </a>
-                {message.metadata?.description && (
-                  <span className="text-sm text-muted-foreground line-clamp-2">
-                    {message.metadata.description}
-                  </span>
-                )}
-              </div>
-            </div>
-            {message.metadata?.image && (
-              <div className="mt-2 rounded-md overflow-hidden">
-                <img 
-                  src={message.metadata.image} 
-                  alt={message.metadata.title || "Link preview"} 
-                  className="w-full h-32 object-cover"
-                />
-              </div>
-            )}
-            <div className="text-xs text-muted-foreground mt-1">
-              {new URL(message.metadata?.url || '').hostname}
-            </div>
-          </div>
-        );
+        if (!isLinkMetadata(message.metadata)) {
+          console.log('Invalid link metadata, rendering as plain text');
+          return <p className="whitespace-pre-wrap break-words">{message.content}</p>;
+        }
+        console.log('Rendering link message with metadata:', message.metadata);
+        return renderLinkMessage(message.metadata);
       
       case 'text':
       default:
+        console.log('Rendering text message');
         return message.role === "assistant" ? (
           <div className="markdown-content prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown>
@@ -89,10 +139,9 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
   return (
     <div 
       className={cn(
-        "py-4 px-4 md:px-8 flex gap-4 transition-all duration-300",
+        "py-4 px-4 md:px-8 flex gap-4",
         "message-appear",
         isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
-        message.role === "assistant" ? "bg-muted/50" : "",
         isLast ? "pb-8" : ""
       )}
     >
@@ -114,14 +163,18 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
           {message.role === "assistant" ? "Chatbot" : "You"}
         </div>
         
-        <div className={cn(
-          "rounded-lg px-4 py-2",
-          message.role === "assistant" 
-            ? "bg-muted text-foreground" 
-            : "bg-primary text-primary-foreground"
-        )}>
-          {renderMessageContent()}
-        </div>
+        {message.type === 'link' ? (
+          renderMessageContent()
+        ) : (
+          <div className={cn(
+            "rounded-lg px-4 py-2",
+            message.role === "assistant" 
+              ? "bg-muted text-foreground" 
+              : "bg-primary text-primary-foreground"
+          )}>
+            {renderMessageContent()}
+          </div>
+        )}
 
         {/* Timestamp */}
         <div className="text-xs text-muted-foreground mt-1">

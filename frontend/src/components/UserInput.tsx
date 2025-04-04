@@ -37,33 +37,76 @@ export default function UserInput({
     const urls = message.match(urlRegex);
     let processedMessage = message;
 
+    console.log('Found URLs:', urls);
+
     if (urls) {
-        for (const url of urls) {
-            // Create a link message
-            const linkMessage: Message = {
-                id: generateUniqueId(),
-                content: url,
-                role: 'user',
-                type: 'link',
-                metadata: {
-                    url: url
-                },
-                timestamp: new Date().toISOString()
-            };
-            onSendMessage(linkMessage);
-            processedMessage = processedMessage.replace(url, '').trim();
+      for (const url of urls) {
+        try {
+          console.log('Fetching metadata for URL:', url);
+          // Fetch link metadata
+          const metadataResponse = await fetch('http://localhost:5000/api/link_metadata', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url }),
+          });
+
+          if (!metadataResponse.ok) {
+            throw new Error('Failed to fetch link metadata');
+          }
+
+          const metadata = await metadataResponse.json();
+          console.log('Received metadata:', metadata);
+
+          // Create a link message with metadata
+          const linkMessage: Message = {
+            id: generateUniqueId(),
+            content: url,
+            role: 'user',
+            type: 'link',
+            metadata: {
+              url: url,
+              title: metadata.title,
+              description: metadata.description,
+              image: metadata.image
+            },
+            timestamp: new Date().toISOString()
+          };
+          console.log('Created link message:', linkMessage);
+          onSendMessage(linkMessage);
+          processedMessage = processedMessage.replace(url, '').trim();
+        } catch (error) {
+          console.error('Error processing link:', error);
+          // Fallback to basic link message if metadata fetch fails
+          const linkMessage: Message = {
+            id: generateUniqueId(),
+            content: url,
+            role: 'user',
+            type: 'link',
+            metadata: {
+              url: url
+            },
+            timestamp: new Date().toISOString()
+          };
+          console.log('Created fallback link message:', linkMessage);
+          onSendMessage(linkMessage);
+          processedMessage = processedMessage.replace(url, '').trim();
         }
+      }
     }
 
     // Send the processed message if it's not empty
     if (processedMessage.trim()) {
-        onSendMessage({
-            id: generateUniqueId(),
-            content: processedMessage,
-            role: 'user',
-            type: 'text',
-            timestamp: new Date().toISOString()
-        });
+      const textMessage: Message = {
+        id: generateUniqueId(),
+        content: processedMessage,
+        role: 'user' as const,
+        type: 'text',
+        timestamp: new Date().toISOString()
+      };
+      console.log('Sending text message:', textMessage);
+      onSendMessage(textMessage);
     }
 
     setMessage('');

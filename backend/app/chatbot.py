@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 from datetime import datetime
@@ -22,6 +23,13 @@ try:
 except ImportError:
     from llm_integration import LLMIntegration, ModelType
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
 
@@ -29,27 +37,22 @@ CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
 asgi_app = WsgiToAsgi(app)
 
 CHATS_FOLDER = 'chats'
-DOCUMENTS_FOLDER = 'documents'
-LINKS_FOLDER = 'links'
 UPLOADS_FOLDER = 'uploads'
+LINKS_FOLDER = 'links'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'json', 'docx'}
 
 app.config['CHATS_FOLDER'] = CHATS_FOLDER
-app.config['DOCUMENTS_FOLDER'] = DOCUMENTS_FOLDER
-app.config['LINKS_FOLDER'] = LINKS_FOLDER
 app.config['UPLOADS_FOLDER'] = UPLOADS_FOLDER
+app.config['LINKS_FOLDER'] = LINKS_FOLDER
 
 if not os.path.exists(CHATS_FOLDER):
     os.makedirs(CHATS_FOLDER)
 
-if not os.path.exists(DOCUMENTS_FOLDER):
-    os.makedirs(DOCUMENTS_FOLDER)
+if not os.path.exists(UPLOADS_FOLDER):
+    os.makedirs(UPLOADS_FOLDER)
 
 if not os.path.exists(LINKS_FOLDER):
     os.makedirs(LINKS_FOLDER)
-
-if not os.path.exists(UPLOADS_FOLDER):
-    os.makedirs(UPLOADS_FOLDER)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -294,6 +297,63 @@ class Chatbot:
             result = await crawler.arun(url=url)
             return result.markdown
 
+def extract_metadata(url):
+    try:
+        # Fetch the webpage content
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Parse the HTML content
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Extract title
+        title = None
+        og_title = soup.find('meta', property='og:title')
+        if og_title:
+            title = og_title.get('content')
+        if not title:
+            title = soup.find('title')
+            title = title.text if title else None
+        if not title:
+            title = url
+            
+        # Extract description
+        description = None
+        og_desc = soup.find('meta', property='og:description')
+        if og_desc:
+            description = og_desc.get('content')
+        if not description:
+            meta_desc = soup.find('meta', attrs={'name': 'description'})
+            description = meta_desc.get('content') if meta_desc else None
+            
+        # Extract image
+        image = None
+        og_image = soup.find('meta', property='og:image')
+        if og_image:
+            image = og_image.get('content')
+        if not image:
+            twitter_image = soup.find('meta', name='twitter:image')
+            image = twitter_image.get('content') if twitter_image else None
+        if not image:
+            favicon = soup.find('link', rel='icon') or soup.find('link', rel='shortcut icon')
+            image = favicon.get('href') if favicon else None
+            
+        # Make image URL absolute if it's relative
+        if image and not image.startswith(('http://', 'https://')):
+            from urllib.parse import urljoin
+            image = urljoin(url, image)
+            
+        return {
+            'title': title,
+            'description': description,
+            'image': image
+        }
+        
+    except requests.exceptions.RequestException as e:
+        raise Exception(f'Failed to fetch URL: {str(e)}')
+    except Exception as e:
+        raise Exception(f'An error occurred: {str(e)}')
+
 chatbot = Chatbot("http://localhost:11434/api/generate")
 
 @app.route('/', methods=['GET'])
@@ -312,51 +372,73 @@ def list_links():
 def upload_file():
     try:
         if 'file' not in request.files:
-            return jsonify({"error": "No file part"}), 400
+            return jsonify({'error': 'No file part'}), 400
+        
         file = request.files['file']
         if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            # Ensure the upload folder exists
-            if not os.path.exists(app.config['UPLOAD_FOLDER']):
-                os.makedirs(app.config['UPLOAD_FOLDER'])
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            # Check if chatbot object is available and functioning
-            try:
-                extracted_text = chatbot.extract_text_from_file(filepath)
-                chatbot.documents[filename] = extracted_text
-                return jsonify({
-                    "message": "File uploaded successfully",
-                    "filename": filename,
-                    "content": extracted_text
-                }), 200
-            except Exception as e:
-                print("Error extracting text:", e)
-                return jsonify({"error": f"Error extracting text: {str(e)}"}), 500
-        return jsonify({"error": "File type not allowed"}), 400
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'File type not allowed'}), 400
+
+        # Ensure the uploads directory exists
+        uploads_dir = app.config['UPLOADS_FOLDER']
+        if not os.path.exists(uploads_dir):
+            os.makedirs(uploads_dir)
+
+        # Save the file
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(uploads_dir, filename)
+        file.save(filepath)
+
+        # Extract text from the file
+        chatbot = Chatbot("http://localhost:11434")
+        content = chatbot.extract_text_from_file(filepath)
+
+        # Store metadata alongside the file
+        metadata = {
+            'filename': filename,
+            'content': content,
+            'uploaded_at': datetime.utcnow().isoformat(),
+            'file_size': os.path.getsize(filepath)
+        }
+
+        metadata_path = os.path.join(uploads_dir, f"{filename}.meta.json")
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f)
+
+        return jsonify({
+            'message': 'File uploaded successfully',
+            'filename': filename,
+            'content': content
+        })
+
     except Exception as e:
-        print(f"Error during file upload: {e}")
-        return jsonify({"error": f"Error during file upload: {str(e)}"}), 500
+        print(f"Error in upload_file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/document_delete', methods=['POST'])
 def delete_document():
     data = request.get_json()
     filename = data.get('filename')
     if not filename:
-        return jsonify({"response": "Error: No filename provided"}), 400
+        return jsonify({"error": "No filename provided"}), 400
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    uploads_dir = app.config['UPLOADS_FOLDER']
+    filepath = os.path.join(uploads_dir, filename)
+    metadata_path = os.path.join(uploads_dir, f"{filename}.meta.json")
+
     if not os.path.exists(filepath):
-        return jsonify({"response": "Error: File not found"}), 404
+        return jsonify({"error": "File not found"}), 404
 
     try:
+        # Delete both the file and its metadata
         os.remove(filepath)
-        del chatbot.documents[filename]
-        return jsonify({"response": "File deleted successfully"}), 200
+        if os.path.exists(metadata_path):
+            os.remove(metadata_path)
+        return jsonify({"message": "File deleted successfully"}), 200
     except Exception as e:
-        return jsonify({"response": f"Error: {e}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/link_upload', methods=['POST'])
 async def crawl():
@@ -525,67 +607,17 @@ Please analyze this content and provide a summary or insights."""
 
 @app.route('/api/link_metadata', methods=['POST'])
 def get_link_metadata():
+    data = request.get_json()
+    url = data.get('url')
+    
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+    
     try:
-        data = request.get_json()
-        url = data.get('url')
-        
-        if not url:
-            return jsonify({'error': 'URL is required'}), 400
-            
-        # Fetch the webpage content
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        
-        # Parse the HTML content
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Extract title
-        title = None
-        og_title = soup.find('meta', property='og:title')
-        if og_title:
-            title = og_title.get('content')
-        if not title:
-            title = soup.find('title')
-            title = title.text if title else None
-        if not title:
-            title = url
-            
-        # Extract description
-        description = None
-        og_desc = soup.find('meta', property='og:description')
-        if og_desc:
-            description = og_desc.get('content')
-        if not description:
-            meta_desc = soup.find('meta', attrs={'name': 'description'})
-            description = meta_desc.get('content') if meta_desc else None
-            
-        # Extract image
-        image = None
-        og_image = soup.find('meta', property='og:image')
-        if og_image:
-            image = og_image.get('content')
-        if not image:
-            twitter_image = soup.find('meta', name='twitter:image')
-            image = twitter_image.get('content') if twitter_image else None
-        if not image:
-            favicon = soup.find('link', rel='icon') or soup.find('link', rel='shortcut icon')
-            image = favicon.get('href') if favicon else None
-            
-        # Make image URL absolute if it's relative
-        if image and not image.startswith(('http://', 'https://')):
-            from urllib.parse import urljoin
-            image = urljoin(url, image)
-        
-        return jsonify({
-            'title': title,
-            'description': description,
-            'image': image
-        })
-        
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'Failed to fetch URL: {str(e)}'}), 400
+        metadata = extract_metadata(url)
+        return jsonify(metadata)
     except Exception as e:
-        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
     import uvicorn

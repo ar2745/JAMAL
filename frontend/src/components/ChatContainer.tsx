@@ -1,6 +1,7 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Message } from "@/types";
 import { useEffect, useRef, useState } from "react";
+import ChatMessage from "./ChatMessage";
 import UserInput from "./UserInput";
 
 interface ChatContainerProps {
@@ -104,26 +105,12 @@ export default function ChatContainer({
       {/* Chat Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
-          {messages.map((message) => (
-            <div
+          {messages.map((message, index) => (
+            <ChatMessage
               key={message.id}
-              className={`flex ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg p-3 ${
-                  message.role === "user"
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-muted"
-                }`}
-              >
-                <p className="whitespace-pre-wrap">{message.content}</p>
-                <span className="text-xs opacity-70 mt-1 block">
-                  {new Date(message.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-            </div>
+              message={message}
+              isLast={index === messages.length - 1}
+            />
           ))}
           {isLoading && (
             <div className="flex justify-start">

@@ -1,19 +1,24 @@
+export interface FileMetadata {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  content?: string;
+}
+
+export interface LinkMetadata {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   type: 'text' | 'file' | 'link';
-  metadata?: {
-    fileName?: string;
-    fileType?: string;
-    fileSize?: number;
-    url?: string;
-    title?: string;
-    description?: string;
-    image?: string;
-    content?: string;
-  };
+  metadata?: FileMetadata | LinkMetadata;
 }
 
 export interface Chat {
