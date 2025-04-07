@@ -3,10 +3,13 @@ import { useEffect, useState } from "react";
 import { v4 as uuidv4 } from 'uuid';
 import ChatContainer from "./components/ChatContainer";
 import Dashboard from "./components/Dashboard";
+import { FileList } from "./components/FileList";
+import { LinkList } from "./components/LinkList";
 import Sidebar from "./components/Sidebar";
 import { ThemeProvider } from "./components/theme-provider";
 import { ThemeToggle } from "./components/theme-toggle";
 import { Chat, Message } from "./types";
+import { getDocuments } from "./utils/api";
 
 export default function App() {
   const isMobile = useIsMobile();
@@ -45,6 +48,40 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('chats', JSON.stringify(chats));
   }, [chats]);
+
+  // Load documents from backend and localStorage on initial render
+  useEffect(() => {
+    const loadDocuments = async () => {
+      try {
+        const savedDocuments = localStorage.getItem('documents');
+        const backendDocuments = await getDocuments();
+        
+        if (backendDocuments && backendDocuments.documents) {
+          const documents = backendDocuments.documents.map((doc: any) => ({
+            id: doc.id || uuidv4(),
+            name: doc.filename,
+            content: doc.content || '',
+            type: doc.type || 'text/plain',
+            selected: false
+          }));
+          
+          setDocuments(documents);
+          localStorage.setItem('documents', JSON.stringify(documents));
+        } else if (savedDocuments) {
+          setDocuments(JSON.parse(savedDocuments));
+        }
+      } catch (error) {
+        console.error('Error loading documents:', error);
+      }
+    };
+
+    loadDocuments();
+  }, []);
+
+  // Save documents to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('documents', JSON.stringify(documents));
+  }, [documents]);
 
   const handleDeleteDocument = (id: string) => {
     setDocuments(documents.filter(doc => doc.id !== id));
@@ -97,6 +134,30 @@ export default function App() {
   const handleSendMessage = (message: Message) => {
     if (!currentChatId) return;
 
+    // If this is a file message, add it to documents
+    if (message.type === 'file' && message.metadata && 'fileName' in message.metadata) {
+      const newDocument = {
+        id: message.id,
+        name: message.metadata.fileName,
+        content: message.metadata.content || '',
+        type: message.metadata.fileType,
+        selected: false
+      };
+      setDocuments(prev => [...prev, newDocument]);
+    }
+
+    // If this is a link message, add it to links
+    if (message.type === 'link' && message.metadata && 'url' in message.metadata) {
+      const newLink = {
+        id: message.id,
+        url: message.metadata.url,
+        title: message.metadata.title,
+        description: message.metadata.description,
+        selected: false
+      };
+      setLinks(prev => [...prev, newLink]);
+    }
+
     setChats(prevChats => {
       return prevChats.map(chat => {
         if (chat.id === currentChatId) {
@@ -143,9 +204,17 @@ export default function App() {
           />
           <main className="flex-1 flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center justify-between p-4 border-b w-[969.33px] h-[77.33px]">
               <h1 className="text-lg font-semibold">
-                {activeSection === 'chat' ? (currentChat?.title || 'New Chat') : 'Dashboard'}
+                {activeSection === 'chat' 
+                  ? (currentChat?.title || 'New Chat') 
+                  : activeSection === 'dashboard'
+                  ? 'Dashboard'
+                  : activeSection === 'files'
+                  ? 'Files'
+                  : activeSection === 'links'
+                  ? 'Links'
+                  : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
               </h1>
               <ThemeToggle />
             </div>
@@ -163,6 +232,20 @@ export default function App() {
                   selectedLinks={selectedLinks}
                   messages={currentChat.messages}
                   onSendMessage={handleSendMessage}
+                />
+              )}
+              {activeSection === 'files' && (
+                <FileList
+                  documents={documents}
+                  onDelete={handleDeleteDocument}
+                  onSelect={handleSelectDocument}
+                />
+              )}
+              {activeSection === 'links' && (
+                <LinkList
+                  links={links}
+                  onDelete={handleDeleteLink}
+                  onSelect={handleSelectLink}
                 />
               )}
             </div>

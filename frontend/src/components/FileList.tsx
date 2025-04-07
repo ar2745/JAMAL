@@ -24,10 +24,6 @@ export function FileList({ documents, onDelete, onSelect }: FileListProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-sidebar-border">
-        <h2 className="text-lg font-semibold text-sidebar-foreground">Files</h2>
-      </div>
-      
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-2">
           {documents.map((file) => (

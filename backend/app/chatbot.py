@@ -293,9 +293,41 @@ class Chatbot:
             return f"Error: {e}"
 
     async def extract_data_from_web_page(self, url):
-        async with AsyncWebCrawler() as crawler:
-            result = await crawler.arun(url=url)
-            return result.markdown
+        try:
+            # Extract metadata
+            metadata = extract_metadata(url)
+            
+            # Create a unique ID for the link
+            link_id = secure_filename(f"{url}_{datetime.utcnow().timestamp()}")
+            
+            # Create link directory
+            link_dir = os.path.join(app.config['LINKS_FOLDER'], link_id)
+            os.makedirs(link_dir, exist_ok=True)
+            
+            # Save metadata
+            metadata_path = os.path.join(link_dir, 'meta.json')
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f)
+            
+            # Save content
+            content_path = os.path.join(link_dir, 'content.txt')
+            with open(content_path, 'w', encoding='utf-8') as f:
+                f.write(metadata.get('content', ''))
+            
+            # Store in memory
+            self.links[link_id] = {
+                'url': url,
+                'title': metadata.get('title'),
+                'description': metadata.get('description'),
+                'image': metadata.get('image'),  # Include the image URL
+                'content': metadata.get('content'),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            return self.links[link_id]
+        except Exception as e:
+            logger.error(f"Error extracting data from web page: {e}")
+            raise
 
 def extract_metadata(url):
     try:
@@ -326,17 +358,27 @@ def extract_metadata(url):
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             description = meta_desc.get('content') if meta_desc else None
             
-        # Extract image
+        # Extract image - Try multiple sources
         image = None
+        # Try Open Graph image first
         og_image = soup.find('meta', property='og:image')
         if og_image:
             image = og_image.get('content')
+        # Try Twitter card image
         if not image:
             twitter_image = soup.find('meta', name='twitter:image')
-            image = twitter_image.get('content') if twitter_image else None
+            if twitter_image:
+                image = twitter_image.get('content')
+        # Try first image in article
+        if not image:
+            article_image = soup.find('img')
+            if article_image:
+                image = article_image.get('src')
+        # Try favicon as last resort
         if not image:
             favicon = soup.find('link', rel='icon') or soup.find('link', rel='shortcut icon')
-            image = favicon.get('href') if favicon else None
+            if favicon:
+                image = favicon.get('href')
             
         # Make image URL absolute if it's relative
         if image and not image.startswith(('http://', 'https://')):
@@ -346,7 +388,8 @@ def extract_metadata(url):
         return {
             'title': title,
             'description': description,
-            'image': image
+            'image': image,
+            'content': soup.get_text(separator=' ', strip=True)
         }
         
     except requests.exceptions.RequestException as e:
@@ -442,24 +485,32 @@ def delete_document():
 
 @app.route('/link_upload', methods=['POST'])
 async def crawl():
-    data = request.get_json()
-    urls = data.get('urls')
-    if not urls:
-        return jsonify({"response": "Error: Empty input"}), 400
-
     try:
-        response = await chatbot.extract_data_from_web_page(urls)
-        if response:
-            filename = secure_filename(f"{urls}.json")
-            filepath = os.path.join(app.config['LINKS_FOLDER'], filename)
-            with open(filepath, 'w') as file:
-                json.dump(response, file)
-            chatbot.links[filename] = response
-            return jsonify({"response": response}), 200
-        else:
-            return jsonify({"response": "Error: Unable to extract data"}), 500
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
+        url = data.get('url')
+        if not url:
+            return jsonify({"error": "No URL provided"}), 400
+
+        # Extract and store link data
+        link_data = await chatbot.extract_data_from_web_page(url)
+        
+        # Return the link data
+        return jsonify({
+            "message": "Link processed successfully",
+            "link": {
+                "id": link_data['url'],
+                "title": link_data['title'],
+                "description": link_data['description'],
+                "image": link_data.get('image'),  # Include the image URL
+                "timestamp": link_data['timestamp']
+            }
+        }), 200
     except Exception as e:
-        return jsonify({"response": f"Error: {e}"}), 500
+        logger.error(f"Error processing link: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/link_delete', methods=['POST'])
 def delete_link():

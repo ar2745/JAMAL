@@ -8,7 +8,7 @@ import { useState } from "react";
 interface Link {
   id: string;
   url: string;
-  title: string;
+  title?: string;
   description?: string;
   content?: string;
   selected?: boolean;
@@ -25,10 +25,6 @@ export function LinkList({ links, onDelete, onSelect }: LinkListProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-sidebar-border">
-        <h2 className="text-lg font-semibold text-sidebar-foreground">Links</h2>
-      </div>
-      
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-2">
           {links.map((link) => (
@@ -42,14 +38,9 @@ export function LinkList({ links, onDelete, onSelect }: LinkListProps) {
                   onCheckedChange={(checked) => onSelect(link.id, checked as boolean)}
                   className="shrink-0"
                 />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2">
-                    <LinkIcon className="h-4 w-4 text-sidebar-foreground shrink-0" />
-                    <span className="text-sm text-sidebar-foreground truncate">{link.title || link.url}</span>
-                  </div>
-                  {link.description && (
-                    <span className="text-xs text-muted-foreground truncate">{link.description}</span>
-                  )}
+                <div className="flex items-center gap-2 min-w-0">
+                  <LinkIcon className="h-4 w-4 text-sidebar-foreground shrink-0" />
+                  <span className="text-sm text-sidebar-foreground truncate">{link.title || link.url}</span>
                 </div>
               </div>
               
@@ -84,13 +75,21 @@ export function LinkList({ links, onDelete, onSelect }: LinkListProps) {
           <ScrollArea className="mt-4">
             <div className="p-4 bg-muted rounded-md">
               {previewLink?.description && (
-                <p className="text-sm text-muted-foreground mb-4">{previewLink.description}</p>
+                <p className="text-sm mb-4">{previewLink.description}</p>
               )}
               {previewLink?.content && (
                 <pre className="whitespace-pre-wrap text-sm">
                   {previewLink.content}
                 </pre>
               )}
+              <a 
+                href={previewLink?.url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline"
+              >
+                Open in new tab
+              </a>
             </div>
           </ScrollArea>
         </DialogContent>

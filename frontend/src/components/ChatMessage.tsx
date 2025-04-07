@@ -30,20 +30,90 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
   }, []);
 
   const renderFileMessage = (metadata: FileMetadata) => {
+    // Get file extension from fileName
+    const fileExt = metadata.fileName.split('.').pop()?.toLowerCase() || '';
+    
+    // Determine file type icon color based on extension
+    const getFileColor = () => {
+      switch (fileExt) {
+        case 'pdf': return 'text-red-500';
+        case 'doc':
+        case 'docx': return 'text-blue-500';
+        case 'xls':
+        case 'xlsx': return 'text-green-500';
+        case 'txt': return 'text-gray-500';
+        default: return 'text-muted-foreground';
+      }
+    };
+
+    // Format file size
+    const formatFileSize = (bytes: number) => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
     return (
-      <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-        <FileText className="w-5 h-5 text-muted-foreground" />
-        <div className="flex flex-col">
-          <span className="font-medium">{metadata.fileName}</span>
-          <span className="text-xs text-muted-foreground">
-            {metadata.fileType} • {metadata.fileSize / 1024} KB
-          </span>
+      <div className="w-full max-w-sm">
+        <div className="border rounded-lg overflow-hidden bg-card hover:bg-accent/5 transition-colors">
+          {/* File Preview Header */}
+          <div className="p-4 flex items-start gap-3">
+            <div className={cn(
+              "p-2 rounded-lg bg-background",
+              message.role === "assistant" ? "bg-accent/10" : "bg-primary/10"
+            )}>
+              <FileText className={cn("w-6 h-6", getFileColor())} />
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              {/* Filename */}
+              <h3 className="font-medium text-sm text-card-foreground truncate">
+                {metadata.fileName}
+              </h3>
+              
+              {/* File Info */}
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                <span className="uppercase">{fileExt}</span>
+                <span>•</span>
+                <span>{formatFileSize(metadata.fileSize)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview Content */}
+          <div className="border-t px-4 py-2">
+            {metadata.content ? (
+              <p className="text-xs text-muted-foreground line-clamp-2">
+                {metadata.content}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">
+                No preview available
+              </p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="border-t px-4 py-2 flex justify-end">
+            <button
+              onClick={() => {
+                // Here you would typically trigger a download
+                // For now, we'll just log
+                console.log('Download requested for:', metadata.fileName);
+              }}
+              className="text-xs text-primary hover:text-primary/80 transition-colors"
+            >
+              Download
+            </button>
+          </div>
         </div>
       </div>
     );
   };
 
   const renderLinkMessage = (metadata: LinkMetadata) => {
+    console.log('Rendering link message with metadata:', metadata);
+    
     return (
       <div className="w-full max-w-lg">
         <a 
@@ -54,12 +124,13 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
         >
           {/* Optional Image - Only shown if available and loads successfully */}
           {metadata.image && (
-            <div className="h-32 relative bg-muted">
+            <div className="h-48 relative bg-muted">
               <img 
                 src={metadata.image} 
-                alt=""
+                alt={metadata.title || 'Link preview'}
                 className="w-full h-full object-cover"
                 onError={(e) => {
+                  console.log('Image failed to load:', metadata.image);
                   const parent = e.currentTarget.parentElement;
                   if (parent) {
                     parent.style.display = 'none';
@@ -70,10 +141,10 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
           )}
           
           {/* Content Section */}
-          <div className="p-3 space-y-2">
+          <div className="p-4 space-y-2">
             {/* Title */}
             <h3 className="font-medium text-sm text-card-foreground line-clamp-2">
-              {metadata.title || 'Visit Link'}
+              {metadata.title || metadata.url}
             </h3>
             
             {/* Description - Only shown if available */}
@@ -156,7 +227,10 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
       )}
       
       {/* Message content */}
-      <div className={cn("flex-1 min-w-0", message.role === "user" ? "flex flex-col items-end" : "")}>
+      <div className={cn(
+        "min-w-0",
+        message.role === "user" ? "flex flex-col items-end" : ""
+      )}>
         <div className="flex items-center gap-2 mb-1">
           <div className="text-sm font-medium text-muted-foreground">
             {message.role === "assistant" ? "JAMAL" : "You"}
@@ -173,7 +247,7 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
           renderMessageContent()
         ) : (
           <div className={cn(
-            "rounded-lg px-4 py-2",
+            "rounded-lg px-4 py-2 inline-block max-w-full",
             message.role === "assistant" 
               ? "bg-muted text-foreground" 
               : "bg-primary text-primary-foreground"

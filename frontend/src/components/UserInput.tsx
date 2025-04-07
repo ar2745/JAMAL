@@ -1,22 +1,30 @@
-import { toast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
-import { Message, SUPPORTED_FILE_TYPES } from "@/types";
-import { FileUp, SendHorizontal } from "lucide-react";
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Message } from "@/types";
+import { Link, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import LinkInputDialog from "./LinkInputDialog";
+
+// Use NEXT_PUBLIC_ prefix for client-side environment variables
+const API_URL = typeof window !== 'undefined' 
+  ? (window as any).ENV?.API_URL || 'http://localhost:5000'
+  : 'http://localhost:5000';
 
 const generateUniqueId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 interface UserInputProps {
   onSendMessage: (message: Message) => void;
+  onFileUpload?: (file: File) => void;
   isLoading?: boolean;
 }
 
 export default function UserInput({ 
   onSendMessage, 
+  onFileUpload,
   isLoading = false 
 }: UserInputProps) {
   const [message, setMessage] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,21 +38,21 @@ export default function UserInput({
   }, [message]);
 
   const handleSendMessage = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() || isLoading) return;
 
-    // Process any URLs in the message
+    const processedMessage = message.trim();
+    setMessage("");
+
+    // Check for URLs in the message
     const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = message.match(urlRegex);
-    let processedMessage = message;
-
-    console.log('Found URLs:', urls);
+    const urls = processedMessage.match(urlRegex);
+    let remainingMessage = processedMessage;
 
     if (urls) {
       for (const url of urls) {
         try {
-          console.log('Fetching metadata for URL:', url);
-          // Fetch link metadata
-          const metadataResponse = await fetch('http://localhost:5000/api/link_metadata', {
+          // Upload the link to our backend
+          const uploadResponse = await fetch('http://localhost:5000/link_upload', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -52,14 +60,14 @@ export default function UserInput({
             body: JSON.stringify({ url }),
           });
 
-          if (!metadataResponse.ok) {
-            throw new Error('Failed to fetch link metadata');
+          if (!uploadResponse.ok) {
+            throw new Error('Failed to upload link');
           }
 
-          const metadata = await metadataResponse.json();
-          console.log('Received metadata:', metadata);
+          const response = await uploadResponse.json();
+          const linkData = response.link; // Access the nested link property
 
-          // Create a link message with metadata
+          // Create a link message with metadata from the upload response
           const linkMessage: Message = {
             id: generateUniqueId(),
             content: url,
@@ -67,15 +75,15 @@ export default function UserInput({
             type: 'link',
             metadata: {
               url: url,
-              title: metadata.title,
-              description: metadata.description,
-              image: metadata.image
+              title: linkData.title,
+              description: linkData.description,
+              image: linkData.image
             },
             timestamp: new Date().toISOString()
           };
-          console.log('Created link message:', linkMessage);
+
           onSendMessage(linkMessage);
-          processedMessage = processedMessage.replace(url, '').trim();
+          remainingMessage = remainingMessage.replace(url, '').trim();
         } catch (error) {
           console.error('Error processing link:', error);
           // Fallback to basic link message if metadata fetch fails
@@ -89,70 +97,100 @@ export default function UserInput({
             },
             timestamp: new Date().toISOString()
           };
-          console.log('Created fallback link message:', linkMessage);
           onSendMessage(linkMessage);
-          processedMessage = processedMessage.replace(url, '').trim();
+          remainingMessage = remainingMessage.replace(url, '').trim();
         }
       }
     }
 
-    // Send the processed message if it's not empty
-    if (processedMessage.trim()) {
+    // If there's any remaining text, send it as a regular message
+    if (remainingMessage) {
       const textMessage: Message = {
         id: generateUniqueId(),
-        content: processedMessage,
-        role: 'user' as const,
+        content: remainingMessage,
+        role: 'user',
         type: 'text',
         timestamp: new Date().toISOString()
       };
-      console.log('Sending text message:', textMessage);
       onSendMessage(textMessage);
     }
-
-    setMessage('');
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const handleFileUpload = async (file: File) => {
-    // Validate file type
-    const fileType = file.type;
-    const isSupported = Object.values(SUPPORTED_FILE_TYPES).some(types => 
-      types.includes(fileType)
-    );
-
-    if (!isSupported) {
-      toast({
-        title: "Unsupported File Type",
-        description: "Please upload a supported file type (PDF, DOCX, TXT, etc.)",
-        variant: "destructive",
+  const handleLinkDialogSubmit = async (url: string) => {
+    try {
+      console.log('Submitting link:', url);
+      
+      // First, upload the link to get metadata
+      const uploadResponse = await fetch(`${API_URL}/link_upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
       });
-      return;
-    }
 
-    // Upload file to backend
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json();
+        console.error('Link upload failed:', errorData);
+        throw new Error(errorData.error || 'Failed to process link');
+      }
+
+      const uploadData = await uploadResponse.json();
+      console.log('Link upload response:', uploadData);
+      
+      // Construct the link message directly from the upload response
+      const linkMessage: Message = {
+        id: generateUniqueId(),
+        content: url,
+        role: 'user',
+        type: 'link',
+        metadata: {
+          url: url,
+          title: uploadData.link.title || 'Visit Link',
+          description: uploadData.link.description,
+          image: uploadData.link.image
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('Created link message:', linkMessage);
+      
+      // Add the link message to the chat
+      onSendMessage(linkMessage);
+    } catch (error) {
+      console.error('Error processing link:', error);
+      // Show error to user
+      alert(error instanceof Error ? error.message : 'Failed to process link');
+    }
+  };
+
+  const handleFileUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       const response = await fetch('http://localhost:5000/document_upload', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to upload file');
+        const errorText = await response.text();
+        console.error('Upload failed:', errorText);
+        throw new Error(`Failed to upload file: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('Upload response:', data);
       
-      // Create file message with the extracted content
+      // Create a file message with metadata
       const fileMessage: Message = {
         id: generateUniqueId(),
         content: file.name,
@@ -162,102 +200,76 @@ export default function UserInput({
           fileName: file.name,
           fileType: file.type,
           fileSize: file.size,
-          content: data.content
+          content: data.content || '' // Use content from response if available
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      onSendMessage(fileMessage);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      // Fallback to basic file message if upload fails
+      const fileMessage: Message = {
+        id: generateUniqueId(),
+        content: file.name,
+        role: 'user',
+        type: 'file',
+        metadata: {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size
         },
         timestamp: new Date().toISOString()
       };
       onSendMessage(fileMessage);
-
-      toast({
-        title: "File Uploaded",
-        description: `${file.name} has been uploaded successfully.`,
-      });
-
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      toast({
-        title: "Upload Failed",
-        description: error instanceof Error ? error.message : "There was an error uploading your file.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      handleFileUpload(file);
     }
   };
 
   return (
-    <div className="relative flex items-center gap-2 p-4 border-t">
+    <div className="flex items-center gap-2 p-4 border-t">
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileChange}
         className="hidden"
-        accept={Object.values(SUPPORTED_FILE_TYPES).flat().join(',')}
+        onChange={handleFileChange}
       />
-      <div
-        className={cn(
-          "flex-1 min-h-[44px] max-h-[200px] rounded-md border bg-background px-3 py-2 relative",
-          isDragging && "border-primary"
-        )}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={handleFileUpload}
+        disabled={isLoading}
       >
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a message or drag & drop a file..."
-          className="w-full resize-none bg-transparent outline-none pr-8"
-          rows={1}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-accent-foreground transition-colors"
-          aria-label="Upload file"
-        >
-          <FileUp className="h-4 w-4" />
-        </button>
-      </div>
-      <button
-        onClick={handleSendMessage}
-        disabled={isLoading || !message.trim()}
-        className={cn(
-          "p-2 rounded-md transition-colors",
-          isLoading || !message.trim()
-            ? "text-muted-foreground"
-            : "text-primary hover:bg-accent"
-        )}
-        aria-label="Send message"
+        <Upload className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={() => setIsLinkDialogOpen(true)}
+        disabled={isLoading}
       >
-        <SendHorizontal className="h-5 w-5" />
-      </button>
+        <Link className="h-4 w-4" />
+      </Button>
+      <Input
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="Type a message..."
+        className="flex-1"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+          }
+        }}
+        disabled={isLoading}
+      />
+      <Button onClick={handleSendMessage} disabled={isLoading}>
+        Send
+      </Button>
+      <LinkInputDialog
+        isOpen={isLinkDialogOpen}
+        onClose={() => setIsLinkDialogOpen(false)}
+        onSubmit={handleLinkDialogSubmit}
+      />
     </div>
   );
 }
