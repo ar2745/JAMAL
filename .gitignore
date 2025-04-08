@@ -33,6 +33,9 @@ Archive/
 /et --hard 35858a05
 memory-bank/
 /.pytest_cache/
+backend/app/uploads
+backend/app/chats
+backend/app/links
 
 # Node modules and build files
 node_modules/

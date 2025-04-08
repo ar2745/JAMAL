@@ -1,4 +1,5 @@
 import { Activity, FileText, Link as LinkIcon, MessageSquare } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ChartContainer, ChartLegend, ChartTooltip, ChartTooltipContent } from "./ui/chart";
@@ -21,18 +22,84 @@ interface DashboardProps {
   }>;
 }
 
-// Mock data for charts - replace with real data later
-const usageData = [
-  { name: "Mon", chats: 12, documents: 3, links: 2 },
-  { name: "Tue", chats: 19, documents: 5, links: 3 },
-  { name: "Wed", chats: 15, documents: 4, links: 1 },
-  { name: "Thu", chats: 8, documents: 2, links: 4 },
-  { name: "Fri", chats: 10, documents: 3, links: 2 },
-  { name: "Sat", chats: 5, documents: 1, links: 1 },
-  { name: "Sun", chats: 7, documents: 2, links: 3 },
-];
+interface AnalyticsData {
+  chatStats: {
+    total_chats: number;
+    total_messages: number;
+    active_chats: number;
+    total_active_users: number;
+  };
+  documentStats: {
+    total_documents: number;
+    total_size: number;
+    types: Record<string, number>;
+  };
+  linkStats: {
+    total_links: number;
+    domains: Record<string, number>;
+  };
+  usageStats: {
+    daily_active_users: number;
+    weekly_active_users: number;
+    monthly_active_users: number;
+    concurrent_users: number;
+    peak_hours: number[];
+    average_response_time: number;
+  };
+}
 
 export default function Dashboard({ documents, links }: DashboardProps) {
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAnalyticsData = async () => {
+      try {
+        const [chatResponse, documentResponse, linkResponse, usageResponse] = await Promise.all([
+          fetch('http://localhost:5000/analytics/chat'),
+          fetch('http://localhost:5000/analytics/documents'),
+          fetch('http://localhost:5000/analytics/links'),
+          fetch('http://localhost:5000/analytics/usage')
+        ]);
+
+        const [chatStats, documentStats, linkStats, usageStats] = await Promise.all([
+          chatResponse.json(),
+          documentResponse.json(),
+          linkResponse.json(),
+          usageResponse.json()
+        ]);
+
+        setAnalyticsData({
+          chatStats,
+          documentStats,
+          linkStats,
+          usageStats
+        });
+      } catch (error) {
+        console.error('Error fetching analytics data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAnalyticsData();
+    // Refresh data every 30 seconds
+    const interval = setInterval(fetchAnalyticsData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading || !analyticsData) {
+    return <div className="p-6">Loading analytics data...</div>;
+  }
+
+  // Transform usage data for the chart
+  const usageData = Object.entries(analyticsData.usageStats.peak_hours).map(([hour, count]) => ({
+    name: `${hour}:00`,
+    chats: count,
+    documents: analyticsData.documentStats.types[hour] || 0,
+    links: analyticsData.linkStats.domains[hour] || 0
+  }));
+
   return (
     <div className="p-6 space-y-6">
       {/* Overview Cards */}
@@ -43,8 +110,8 @@ export default function Dashboard({ documents, links }: DashboardProps) {
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">24</div>
-            <p className="text-xs text-muted-foreground">+12% from last week</p>
+            <div className="text-2xl font-bold">{analyticsData.chatStats.total_chats}</div>
+            <p className="text-xs text-muted-foreground">{analyticsData.chatStats.active_chats} active chats</p>
           </CardContent>
         </Card>
         <Card>
@@ -53,8 +120,8 @@ export default function Dashboard({ documents, links }: DashboardProps) {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{documents.length}</div>
-            <p className="text-xs text-muted-foreground">+3 new this week</p>
+            <div className="text-2xl font-bold">{analyticsData.documentStats.total_documents}</div>
+            <p className="text-xs text-muted-foreground">{(analyticsData.documentStats.total_size / 1024 / 1024).toFixed(2)} MB total</p>
           </CardContent>
         </Card>
         <Card>
@@ -63,8 +130,8 @@ export default function Dashboard({ documents, links }: DashboardProps) {
             <LinkIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{links.length}</div>
-            <p className="text-xs text-muted-foreground">+5 new this week</p>
+            <div className="text-2xl font-bold">{analyticsData.linkStats.total_links}</div>
+            <p className="text-xs text-muted-foreground">{Object.keys(analyticsData.linkStats.domains).length} unique domains</p>
           </CardContent>
         </Card>
         <Card>
@@ -73,8 +140,8 @@ export default function Dashboard({ documents, links }: DashboardProps) {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-muted-foreground">Currently online</p>
+            <div className="text-2xl font-bold">{analyticsData.usageStats.concurrent_users}</div>
+            <p className="text-xs text-muted-foreground">{analyticsData.usageStats.daily_active_users} daily active</p>
           </CardContent>
         </Card>
       </div>
@@ -83,7 +150,7 @@ export default function Dashboard({ documents, links }: DashboardProps) {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Weekly Activity</CardTitle>
+            <CardTitle>Hourly Activity</CardTitle>
           </CardHeader>
           <CardContent>
             <ChartContainer config={{
@@ -113,21 +180,21 @@ export default function Dashboard({ documents, links }: DashboardProps) {
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Backend API</p>
-                  <p className="text-xs text-muted-foreground">Response time: 120ms</p>
+                  <p className="text-xs text-muted-foreground">Response time: {analyticsData.usageStats.average_response_time.toFixed(2)}ms</p>
+                </div>
+                <div className={`h-2 w-2 rounded-full ${analyticsData.usageStats.average_response_time < 200 ? 'bg-green-500' : 'bg-yellow-500'}`} />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Active Users</p>
+                  <p className="text-xs text-muted-foreground">{analyticsData.usageStats.weekly_active_users} weekly active</p>
                 </div>
                 <div className="h-2 w-2 rounded-full bg-green-500" />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Memory Usage</p>
-                  <p className="text-xs text-muted-foreground">45% of 8GB</p>
-                </div>
-                <div className="h-2 w-2 rounded-full bg-yellow-500" />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
                   <p className="text-sm font-medium">Storage</p>
-                  <p className="text-xs text-muted-foreground">2.3GB of 10GB used</p>
+                  <p className="text-xs text-muted-foreground">{(analyticsData.documentStats.total_size / 1024 / 1024).toFixed(2)} MB used</p>
                 </div>
                 <div className="h-2 w-2 rounded-full bg-green-500" />
               </div>
@@ -148,7 +215,7 @@ export default function Dashboard({ documents, links }: DashboardProps) {
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium">{doc.name}</p>
-                  <p className="text-xs text-muted-foreground">Uploaded 2 hours ago</p>
+                  <p className="text-xs text-muted-foreground">{doc.type}</p>
                 </div>
               </div>
             ))}
@@ -157,7 +224,15 @@ export default function Dashboard({ documents, links }: DashboardProps) {
                 <LinkIcon className="h-4 w-4 text-muted-foreground" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium">{link.title}</p>
-                  <p className="text-xs text-muted-foreground">Added 1 day ago</p>
+                  <p className="text-xs text-muted-foreground">
+                    {link.url ? (() => {
+                      try {
+                        return new URL(link.url).hostname;
+                      } catch (e) {
+                        return link.url;
+                      }
+                    })() : 'No URL'}
+                  </p>
                 </div>
               </div>
             ))}

@@ -9,7 +9,7 @@ import Sidebar from "./components/Sidebar";
 import { ThemeProvider } from "./components/theme-provider";
 import { ThemeToggle } from "./components/theme-toggle";
 import { Chat, Message } from "./types";
-import { getDocuments } from "./utils/api";
+import { getDocuments, getLinks } from "./utils/api";
 
 export default function App() {
   const isMobile = useIsMobile();
@@ -75,13 +75,43 @@ export default function App() {
       }
     };
 
+    const loadLinks = async () => {
+      try {
+        const savedLinks = localStorage.getItem('links');
+        const backendLinks = await getLinks();
+        
+        if (backendLinks && backendLinks.links) {
+          const links = backendLinks.links.map((link: any) => ({
+            id: link.id || uuidv4(),
+            url: link.url,
+            title: link.title || link.url,
+            description: link.description,
+            content: link.content,
+            selected: false
+          }));
+          
+          setLinks(links);
+          localStorage.setItem('links', JSON.stringify(links));
+        } else if (savedLinks) {
+          setLinks(JSON.parse(savedLinks));
+        }
+      } catch (error) {
+        console.error('Error loading links:', error);
+      }
+    };
+
     loadDocuments();
+    loadLinks();
   }, []);
 
-  // Save documents to localStorage whenever they change
+  // Save documents and links to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('documents', JSON.stringify(documents));
   }, [documents]);
+
+  useEffect(() => {
+    localStorage.setItem('links', JSON.stringify(links));
+  }, [links]);
 
   const handleDeleteDocument = (id: string) => {
     setDocuments(documents.filter(doc => doc.id !== id));

@@ -3,8 +3,11 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
-from typing import Any, Dict, List
+import threading
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 import chromadb
@@ -56,6 +59,289 @@ if not os.path.exists(LINKS_FOLDER):
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+class AnalyticsService:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        # In-memory storage for analytics data
+        self._chat_stats = defaultdict(lambda: {
+            'message_count': 0,
+            'last_activity': None,
+            'document_count': 0,
+            'link_count': 0,
+            'active_users': set(),
+            'message_history': []
+        })
+        self._document_stats = defaultdict(lambda: {
+            'count': 0,
+            'total_size': 0,
+            'types': defaultdict(int),
+            'upload_history': []
+        })
+        self._link_stats = defaultdict(lambda: {
+            'count': 0,
+            'domains': defaultdict(int),
+            'share_history': []
+        })
+        self._usage_stats = {
+            'daily_active': set(),
+            'weekly_active': set(),
+            'monthly_active': set(),
+            'peak_hours': [0] * 24,
+            'concurrent_users': 0,
+            'response_times': [],
+            'error_rates': defaultdict(int)
+        }
+        
+        # Start cleanup thread
+        self._cleanup_thread = threading.Thread(target=self._periodic_cleanup, daemon=True)
+        self._cleanup_thread.start()
+
+    def _periodic_cleanup(self):
+        """Periodically clean up old data."""
+        while True:
+            self.cleanup_old_data()
+            time.sleep(3600)  # Run cleanup every hour
+
+    def track_chat_activity(self, chat_id: str, message_count: int = 1, user_id: Optional[str] = None):
+        """Track chat activity and message count."""
+        stats = self._chat_stats[chat_id]
+        stats['message_count'] += message_count
+        stats['last_activity'] = datetime.now()
+        
+        if user_id:
+            stats['active_users'].add(user_id)
+            
+        # Track message history
+        stats['message_history'].append({
+            'timestamp': datetime.now(),
+            'user_id': user_id,
+            'count': message_count
+        })
+
+    def track_document_upload(self, chat_id: str, file_type: str, file_size: int, user_id: Optional[str] = None):
+        """Track document upload statistics."""
+        chat_stats = self._chat_stats[chat_id]
+        doc_stats = self._document_stats[chat_id]
+        
+        chat_stats['document_count'] += 1
+        doc_stats['count'] += 1
+        doc_stats['total_size'] += file_size
+        doc_stats['types'][file_type] += 1
+        
+        # Track upload history
+        doc_stats['upload_history'].append({
+            'timestamp': datetime.now(),
+            'user_id': user_id,
+            'file_type': file_type,
+            'file_size': file_size
+        })
+
+    def track_link_share(self, chat_id: str, domain: str, user_id: Optional[str] = None):
+        """Track link sharing statistics."""
+        chat_stats = self._chat_stats[chat_id]
+        link_stats = self._link_stats[chat_id]
+        
+        chat_stats['link_count'] += 1
+        link_stats['count'] += 1
+        link_stats['domains'][domain] += 1
+        
+        # Track share history
+        link_stats['share_history'].append({
+            'timestamp': datetime.now(),
+            'user_id': user_id,
+            'domain': domain
+        })
+
+    def track_user_activity(self, user_id: str):
+        """Track user activity for engagement metrics."""
+        now = datetime.now()
+        
+        # Update daily active users
+        self._usage_stats['daily_active'].add(user_id)
+        
+        # Update weekly active users
+        if now.weekday() == 0:  # Monday
+            self._usage_stats['weekly_active'].clear()
+        self._usage_stats['weekly_active'].add(user_id)
+        
+        # Update monthly active users
+        if now.day == 1:  # First day of month
+            self._usage_stats['monthly_active'].clear()
+        self._usage_stats['monthly_active'].add(user_id)
+        
+        # Track peak hours
+        hour = now.hour
+        self._usage_stats['peak_hours'][hour] += 1
+        
+        # Update concurrent users
+        self._usage_stats['concurrent_users'] = len(self._usage_stats['daily_active'])
+
+    def track_response_time(self, response_time: float):
+        """Track response time for performance monitoring."""
+        self._usage_stats['response_times'].append({
+            'timestamp': datetime.now(),
+            'response_time': response_time
+        })
+        # Keep only last 1000 response times
+        if len(self._usage_stats['response_times']) > 1000:
+            self._usage_stats['response_times'] = self._usage_stats['response_times'][-1000:]
+
+    def track_error(self, error_type: str):
+        """Track error occurrences."""
+        self._usage_stats['error_rates'][error_type] += 1
+
+    def get_chat_statistics(self, chat_id: Optional[str] = None) -> Dict:
+        """Get chat statistics for a specific chat or all chats."""
+        if chat_id:
+            stats = dict(self._chat_stats[chat_id])
+            # Add real-time metrics
+            stats['active_users_count'] = len(stats['active_users'])
+            stats['recent_messages'] = [
+                msg for msg in stats['message_history']
+                if (datetime.now() - msg['timestamp']).total_seconds() < 3600
+            ]
+            return stats
+        
+        total_stats = {
+            'total_chats': len(self._chat_stats),
+            'total_messages': sum(stats['message_count'] for stats in self._chat_stats.values()),
+            'total_documents': sum(stats['document_count'] for stats in self._chat_stats.values()),
+            'total_links': sum(stats['link_count'] for stats in self._chat_stats.values()),
+            'active_chats': sum(1 for stats in self._chat_stats.values() 
+                              if stats['last_activity'] and 
+                              (datetime.now() - stats['last_activity']).days < 7),
+            'total_active_users': len(set().union(*[stats['active_users'] 
+                                                  for stats in self._chat_stats.values()]))
+        }
+        return total_stats
+
+    def get_document_statistics(self, chat_id: Optional[str] = None) -> Dict:
+        """Get document statistics for a specific chat or all chats."""
+        if chat_id:
+            stats = dict(self._document_stats[chat_id])
+            # Add real-time metrics
+            stats['recent_uploads'] = [
+                upload for upload in stats['upload_history']
+                if (datetime.now() - upload['timestamp']).total_seconds() < 3600
+            ]
+            return stats
+        
+        total_stats = {
+            'total_documents': sum(stats['count'] for stats in self._document_stats.values()),
+            'total_size': sum(stats['total_size'] for stats in self._document_stats.values()),
+            'types': defaultdict(int),
+            'recent_uploads': []
+        }
+        
+        for stats in self._document_stats.values():
+            for file_type, count in stats['types'].items():
+                total_stats['types'][file_type] += count
+            # Add recent uploads from all chats
+            total_stats['recent_uploads'].extend([
+                upload for upload in stats['upload_history']
+                if (datetime.now() - upload['timestamp']).total_seconds() < 3600
+            ])
+                
+        return total_stats
+
+    def get_link_statistics(self, chat_id: Optional[str] = None) -> Dict:
+        """Get link statistics for a specific chat or all chats."""
+        if chat_id:
+            stats = dict(self._link_stats[chat_id])
+            # Add real-time metrics
+            stats['recent_shares'] = [
+                share for share in stats['share_history']
+                if (datetime.now() - share['timestamp']).total_seconds() < 3600
+            ]
+            return stats
+        
+        total_stats = {
+            'total_links': sum(stats['count'] for stats in self._link_stats.values()),
+            'domains': defaultdict(int),
+            'recent_shares': []
+        }
+        
+        for stats in self._link_stats.values():
+            for domain, count in stats['domains'].items():
+                total_stats['domains'][domain] += count
+            # Add recent shares from all chats
+            total_stats['recent_shares'].extend([
+                share for share in stats['share_history']
+                if (datetime.now() - share['timestamp']).total_seconds() < 3600
+            ])
+                
+        return total_stats
+
+    def get_usage_statistics(self) -> Dict:
+        """Get usage statistics including active users and peak hours."""
+        # Calculate average response time for last hour
+        recent_response_times = [
+            rt['response_time'] for rt in self._usage_stats['response_times']
+            if (datetime.now() - rt['timestamp']).total_seconds() < 3600
+        ]
+        avg_response_time = sum(recent_response_times) / len(recent_response_times) if recent_response_times else 0
+        
+        return {
+            'daily_active_users': len(self._usage_stats['daily_active']),
+            'weekly_active_users': len(self._usage_stats['weekly_active']),
+            'monthly_active_users': len(self._usage_stats['monthly_active']),
+            'concurrent_users': self._usage_stats['concurrent_users'],
+            'peak_hours': self._usage_stats['peak_hours'],
+            'average_response_time': avg_response_time,
+            'error_rates': dict(self._usage_stats['error_rates'])
+        }
+
+    def cleanup_old_data(self, days: int = 30):
+        """Clean up data older than specified days."""
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        # Clean up chat stats
+        for chat_id, stats in list(self._chat_stats.items()):
+            if stats['last_activity'] and stats['last_activity'] < cutoff_date:
+                del self._chat_stats[chat_id]
+                if chat_id in self._document_stats:
+                    del self._document_stats[chat_id]
+                if chat_id in self._link_stats:
+                    del self._link_stats[chat_id]
+            else:
+                # Clean up message history
+                stats['message_history'] = [
+                    msg for msg in stats['message_history']
+                    if msg['timestamp'] > cutoff_date
+                ]
+        
+        # Clean up document stats
+        for stats in self._document_stats.values():
+            stats['upload_history'] = [
+                upload for upload in stats['upload_history']
+                if upload['timestamp'] > cutoff_date
+            ]
+        
+        # Clean up link stats
+        for stats in self._link_stats.values():
+            stats['share_history'] = [
+                share for share in stats['share_history']
+                if share['timestamp'] > cutoff_date
+            ]
+        
+        # Clean up usage stats
+        if datetime.now().day == 1:  # First day of month
+            self._usage_stats['monthly_active'].clear()
+        if datetime.now().weekday() == 0:  # Monday
+            self._usage_stats['weekly_active'].clear()
+        if datetime.now().hour == 0:  # Midnight
+            self._usage_stats['daily_active'].clear()
+            self._usage_stats['peak_hours'] = [0] * 24
+            
+        # Clean up response times
+        self._usage_stats['response_times'] = [
+            rt for rt in self._usage_stats['response_times']
+            if rt['timestamp'] > cutoff_date
+        ]
+
+# Initialize analytics service
+analytics_service = AnalyticsService()
 
 class MemoryManager:
     def __init__(self, api_url: str = "http://localhost:11434"):
@@ -219,12 +505,90 @@ class ResponseGenerator:
         return await self.generate_simple_response(combined_input)
 
 class Chatbot:
-    def __init__(self, api_url):
-        self.llm_integration = LLMIntegration(api_url)
+    def __init__(self, api_url: str):
+        self.api_url = api_url
         self.documents = {}
         self.links = {}
+        self.memory_manager = MemoryManager()
         self.response_generator = ResponseGenerator(self)
-        self.memory_manager = MemoryManager(api_url)
+        self.llm_integration = LLMIntegration(api_url)  # Initialize LLM integration
+        self.load_persisted_data()
+
+    def load_persisted_data(self):
+        """Load persisted documents and links from disk."""
+        try:
+            # Load documents
+            for filename in os.listdir(UPLOADS_FOLDER):
+                if filename.endswith('.meta.json'):
+                    continue
+                filepath = os.path.join(UPLOADS_FOLDER, filename)
+                metadata_path = os.path.join(UPLOADS_FOLDER, f"{filename}.meta.json")
+                
+                if os.path.exists(metadata_path):
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                        self.documents[filename] = metadata.get('content', '')
+            
+            # Load links
+            for link_dir in os.listdir(LINKS_FOLDER):
+                link_path = os.path.join(LINKS_FOLDER, link_dir)
+                if not os.path.isdir(link_path):
+                    continue
+                    
+                metadata_path = os.path.join(link_path, 'meta.json')
+                content_path = os.path.join(link_path, 'content.txt')
+                
+                if os.path.exists(metadata_path) and os.path.exists(content_path):
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                    with open(content_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    self.links[link_dir] = {
+                        'url': metadata.get('url'),
+                        'title': metadata.get('title'),
+                        'description': metadata.get('description'),
+                        'image': metadata.get('image'),
+                        'content': content,
+                        'timestamp': metadata.get('timestamp')
+                    }
+        except Exception as e:
+            logger.error(f"Error loading persisted data: {e}")
+
+    def persist_document(self, filename: str, content: str, metadata: dict):
+        """Persist document and its metadata to disk."""
+        try:
+            filepath = os.path.join(UPLOADS_FOLDER, filename)
+            metadata_path = os.path.join(UPLOADS_FOLDER, f"{filename}.meta.json")
+            
+            # Save content
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Save metadata
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f)
+        except Exception as e:
+            logger.error(f"Error persisting document: {e}")
+
+    def persist_link(self, link_id: str, link_data: dict):
+        """Persist link and its metadata to disk."""
+        try:
+            # Create link directory
+            link_dir = os.path.join(LINKS_FOLDER, link_id)
+            os.makedirs(link_dir, exist_ok=True)
+            
+            # Save metadata
+            metadata_path = os.path.join(link_dir, 'meta.json')
+            with open(metadata_path, 'w') as f:
+                json.dump(link_data, f)
+            
+            # Save content
+            content_path = os.path.join(link_dir, 'content.txt')
+            with open(content_path, 'w', encoding='utf-8') as f:
+                f.write(link_data.get('content', ''))
+        except Exception as e:
+            logger.error(f"Error persisting link: {e}")
 
     def preprocess_input(self, user_input):
         return user_input.strip().lower()
@@ -300,31 +664,23 @@ class Chatbot:
             # Create a unique ID for the link
             link_id = secure_filename(f"{url}_{datetime.utcnow().timestamp()}")
             
-            # Create link directory
-            link_dir = os.path.join(app.config['LINKS_FOLDER'], link_id)
-            os.makedirs(link_dir, exist_ok=True)
-            
-            # Save metadata
-            metadata_path = os.path.join(link_dir, 'meta.json')
-            with open(metadata_path, 'w') as f:
-                json.dump(metadata, f)
-            
-            # Save content
-            content_path = os.path.join(link_dir, 'content.txt')
-            with open(content_path, 'w', encoding='utf-8') as f:
-                f.write(metadata.get('content', ''))
-            
-            # Store in memory
-            self.links[link_id] = {
+            # Create link data structure
+            link_data = {
                 'url': url,
                 'title': metadata.get('title'),
                 'description': metadata.get('description'),
-                'image': metadata.get('image'),  # Include the image URL
+                'image': metadata.get('image'),
                 'content': metadata.get('content'),
                 'timestamp': datetime.utcnow().isoformat()
             }
             
-            return self.links[link_id]
+            # Persist link data
+            self.persist_link(link_id, link_data)
+            
+            # Store in memory
+            self.links[link_id] = link_data
+            
+            return link_data
         except Exception as e:
             logger.error(f"Error extracting data from web page: {e}")
             raise
@@ -397,6 +753,7 @@ def extract_metadata(url):
     except Exception as e:
         raise Exception(f'An error occurred: {str(e)}')
 
+# Initialize chatbot with API URL
 chatbot = Chatbot("http://localhost:11434/api/generate")
 
 @app.route('/', methods=['GET'])
@@ -405,60 +762,86 @@ def home():
 
 @app.route('/documents', methods=['GET'])
 def list_documents():
-    return jsonify({"documents": list(chatbot.documents.keys())})
+    documents = []
+    for filename, content in chatbot.documents.items():
+        metadata_path = os.path.join(app.config['UPLOADS_FOLDER'], f"{filename}.meta.json")
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                documents.append({
+                    'id': filename,
+                    'filename': filename,
+                    'content': content,
+                    'type': metadata.get('type', 'text/plain'),
+                    'size': metadata.get('size', 0),
+                    'timestamp': metadata.get('timestamp')
+                })
+    return jsonify({"documents": documents})
 
 @app.route('/links', methods=['GET'])
 def list_links():
-    return jsonify({"links": list(chatbot.links.keys())})
+    links = []
+    for link_id, link_data in chatbot.links.items():
+        link_dir = os.path.join(app.config['LINKS_FOLDER'], link_id)
+        metadata_path = os.path.join(link_dir, 'meta.json')
+        
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                links.append({
+                    'id': link_id,
+                    'url': link_data['url'],
+                    'title': link_data.get('title'),
+                    'description': link_data.get('description'),
+                    'content': link_data.get('content'),
+                    'timestamp': link_data.get('timestamp')
+                })
+    return jsonify({"links": links})
 
 @app.route('/document_upload', methods=['POST'])
 def upload_file():
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-        
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'File type not allowed'}), 400
-
-        # Ensure the uploads directory exists
-        uploads_dir = app.config['UPLOADS_FOLDER']
-        if not os.path.exists(uploads_dir):
-            os.makedirs(uploads_dir)
-
-        # Save the file
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-        filepath = os.path.join(uploads_dir, filename)
+        filepath = os.path.join(app.config['UPLOADS_FOLDER'], filename)
         file.save(filepath)
-
-        # Extract text from the file
-        chatbot = Chatbot("http://localhost:11434")
-        content = chatbot.extract_text_from_file(filepath)
-
-        # Store metadata alongside the file
-        metadata = {
-            'filename': filename,
-            'content': content,
-            'uploaded_at': datetime.utcnow().isoformat(),
-            'file_size': os.path.getsize(filepath)
-        }
-
-        metadata_path = os.path.join(uploads_dir, f"{filename}.meta.json")
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f)
-
-        return jsonify({
-            'message': 'File uploaded successfully',
-            'filename': filename,
-            'content': content
-        })
-
-    except Exception as e:
-        print(f"Error in upload_file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        
+        try:
+            content = chatbot.extract_text_from_file(filepath)
+            chatbot.documents[filename] = content
+            
+            # Create metadata
+            metadata = {
+                'type': file.content_type,
+                'size': os.path.getsize(filepath),
+                'timestamp': datetime.utcnow().isoformat(),
+                'content': content
+            }
+            
+            # Persist document
+            chatbot.persist_document(filename, content, metadata)
+            
+            # Track document upload in analytics
+            chat_id = request.args.get('chat_id', 'default')
+            user_id = request.args.get('user_id', 'anonymous')
+            analytics_service.track_document_upload(chat_id, file.content_type, metadata['size'], user_id)
+            
+            response_data = {
+                "message": "File uploaded successfully",
+                "content": content,
+                "metadata": metadata
+            }
+            return jsonify(response_data), 200
+        except Exception as e:
+            logger.error(f"Error processing file: {e}")
+            analytics_service.track_error("file_upload_error")
+            return jsonify({"error": str(e)}), 500
+            
+    return jsonify({"error": "File type not allowed"}), 400
 
 @app.route('/document_delete', methods=['POST'])
 def delete_document():
@@ -496,20 +879,27 @@ async def crawl():
 
         # Extract and store link data
         link_data = await chatbot.extract_data_from_web_page(url)
+        link_id = link_data['url']  # Use URL as ID
         
-        # Return the link data
+        # Track link share in analytics
+        chat_id = request.args.get('chat_id', 'default')
+        user_id = request.args.get('user_id', 'anonymous')
+        domain = url.split('/')[2]  # Extract domain from URL
+        analytics_service.track_link_share(chat_id, domain, user_id)
+        
         return jsonify({
             "message": "Link processed successfully",
             "link": {
-                "id": link_data['url'],
+                "id": link_id,
                 "title": link_data['title'],
                 "description": link_data['description'],
-                "image": link_data.get('image'),  # Include the image URL
+                "image": link_data.get('image'),
                 "timestamp": link_data['timestamp']
             }
         }), 200
     except Exception as e:
         logger.error(f"Error processing link: {e}")
+        analytics_service.track_error("link_upload_error")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/link_delete', methods=['POST'])
@@ -576,85 +966,65 @@ async def retrieve_memory():
 
 @app.route('/chat', methods=['POST'])
 async def chat():
+    start_time = datetime.now()
+    data = request.get_json()
+    user_input = data.get('message')
+    conversation_id = data.get('conversation_id')
+    document_name = data.get('document')
+    link = data.get('link')
+    user_id = data.get('user_id', 'anonymous')
+    
+    # Track user activity
+    analytics_service.track_user_activity(user_id)
+    
+    if not user_input:
+        return jsonify({'response': 'Error: Empty input'}), 400
+    elif len(user_input) > 512:
+        return jsonify({'response': 'Error: Input too long'}), 400
+    elif not isinstance(user_input, str):
+        return jsonify({'response': 'Error: Invalid input type'}), 400
+    
+    # Track chat activity
+    chat_id = conversation_id or 'default'
+    analytics_service.track_chat_activity(chat_id, user_id=user_id)
+    
     try:
-        data = request.get_json()
-        message = data.get('message')
-        context = data.get('context')
-        message_type = data.get('type', 'text')
-        metadata = data.get('metadata', {})
-
-        if not message:
-            return jsonify({'error': 'Message is required'}), 400
-
-        # Prepare the prompt with context if available
-        prompt = message
-        if context:
-            prompt = f"""Context from selected sources:
-{context}
-
-User question: {message}
-
-Please provide a response based on the context above. If the context is not relevant to the question, you can provide a general response."""
-
-        # Handle file messages
-        if message_type == 'file':
-            content = metadata.get('content', '')
-            if not content:
-                return jsonify({'error': 'No file content provided'}), 400
-
-            # Create a prompt for analyzing the file
-            prompt = f"""Please analyze this document and provide a brief summary:
-
-Document Name: {metadata.get('fileName', 'Unknown')}
-Content:
-{content[:2000]}  # Limit content length for the prompt
-
-Please provide:
-1. A brief summary of the document
-2. Key points or main topics
-3. Any notable information or insights
-
-Keep your response concise and focused on the actual content of the document."""
-            
-            # Get response from LLM
-            response = await chatbot.get_simple_response(prompt)
-            return jsonify({'response': response})
-
-        # Handle link messages
-        elif message_type == 'link':
-            url = metadata.get('url')
-            if not url:
-                return jsonify({'error': 'URL is required for link messages'}), 400
-
-            # Fetch and process the link content
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            
-            # Extract text content
-            soup = BeautifulSoup(response.text, 'html.parser')
-            text_content = soup.get_text(separator=' ', strip=True)
-            
-            # Create a prompt that includes the link content
-            prompt = f"""I found this link: {url}
-Title: {metadata.get('title', 'No title available')}
-Description: {metadata.get('description', 'No description available')}
-
-Content from the page:
-{text_content[:2000]}  # Limit content length
-
-Please analyze this content and provide a summary or insights."""
-            
-            # Get response from LLM
-            response = await chatbot.get_simple_response(prompt)
-            return jsonify({'response': response})
-
-        # Handle regular text messages
-        response = await chatbot.get_simple_response(prompt)
+        # Handle document-based chat
+        if document_name and document_name in chatbot.documents:
+            response = await chatbot.response_generator.generate_document_response(
+                user_input,
+                chatbot.documents[document_name]
+            )
+        # Handle link-based chat
+        elif link and link in chatbot.links:
+            response = await chatbot.response_generator.generate_link_response(
+                user_input,
+                chatbot.links[link]['content']
+            )
+        # Handle regular chat
+        else:
+            response = await chatbot.response_generator.generate_simple_response(user_input)
+        
+        # Store the conversation in memory
+        if conversation_id:
+            await chatbot.memory_manager.store_memory(
+                conversation_id,
+                user_input,
+                response,
+                [document_name] if document_name else None,
+                [link] if link else None
+            )
+        
+        # Track response time
+        end_time = datetime.now()
+        response_time = (end_time - start_time).total_seconds()
+        analytics_service.track_response_time(response_time)
+        
         return jsonify({'response': response})
-
     except Exception as e:
-        print(f"Error in chat endpoint: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error in chat: {e}")
+        analytics_service.track_error("chat_error")
+        return jsonify({'response': f'Error: {e}'}), 500
 
 @app.route('/api/link_metadata', methods=['POST'])
 def get_link_metadata():
@@ -669,6 +1039,30 @@ def get_link_metadata():
         return jsonify(metadata)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Add analytics endpoints
+@app.route('/analytics/chat', methods=['GET'])
+def get_chat_analytics():
+    chat_id = request.args.get('chat_id')
+    stats = analytics_service.get_chat_statistics(chat_id)
+    return jsonify(stats)
+
+@app.route('/analytics/documents', methods=['GET'])
+def get_document_analytics():
+    chat_id = request.args.get('chat_id')
+    stats = analytics_service.get_document_statistics(chat_id)
+    return jsonify(stats)
+
+@app.route('/analytics/links', methods=['GET'])
+def get_link_analytics():
+    chat_id = request.args.get('chat_id')
+    stats = analytics_service.get_link_statistics(chat_id)
+    return jsonify(stats)
+
+@app.route('/analytics/usage', methods=['GET'])
+def get_usage_analytics():
+    stats = analytics_service.get_usage_statistics()
+    return jsonify(stats)
 
 if __name__ == "__main__":
     import uvicorn
