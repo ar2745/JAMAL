@@ -17,6 +17,7 @@ import requests
 from asgiref.wsgi import WsgiToAsgi
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler
+from flasgger import Swagger, swag_from
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -756,11 +757,57 @@ def extract_metadata(url):
 # Initialize chatbot with API URL
 chatbot = Chatbot("http://localhost:11434/api/generate")
 
+# Swagger configuration
+swagger_config = {
+    "headers": [],
+    "specs": [{
+        "endpoint": 'apispec',
+        "route": '/apispec.json',
+        "rule_filter": lambda rule: True,
+        "model_filter": lambda tag: True,
+    }],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/docs"
+}
+
+swagger_template = {
+    "info": {
+        "title": "Responsive Chat API",
+        "description": "API documentation for the Responsive Chat application",
+        "version": "1.0"
+    },
+    "schemes": ["http", "https"]
+}
+
+swagger = Swagger(app, config=swagger_config, template=swagger_template)
+
 @app.route('/', methods=['GET'])
+@swag_from({
+    "tags": ["General"],
+    "responses": {
+        "200": {
+            "description": "Welcome message",
+            "schema": {"properties": {"message": {"type": "string"}}}
+        }
+    }
+})
 def home():
     return jsonify({"message": "Welcome to the ChatBot API"})
 
 @app.route('/documents', methods=['GET'])
+@swag_from({
+    "tags": ["Documents"],
+    "responses": {
+        "200": {
+            "description": "List of documents",
+            "schema": {
+                "type": "array",
+                "items": {"type": "string"}
+            }
+        }
+    }
+})
 def list_documents():
     documents = []
     for filename, content in chatbot.documents.items():
@@ -779,6 +826,18 @@ def list_documents():
     return jsonify({"documents": documents})
 
 @app.route('/links', methods=['GET'])
+@swag_from({
+    "tags": ["Links"],
+    "responses": {
+        "200": {
+            "description": "List of processed links",
+            "schema": {
+                "type": "array",
+                "items": {"type": "string"}
+            }
+        }
+    }
+})
 def list_links():
     links = []
     for link_id, link_data in chatbot.links.items():
@@ -799,6 +858,26 @@ def list_links():
     return jsonify({"links": links})
 
 @app.route('/document_upload', methods=['POST'])
+@swag_from({
+    "tags": ["Documents"],
+    "parameters": [
+        {
+            "name": "file",
+            "in": "formData",
+            "type": "file",
+            "required": True,
+            "description": "Document to upload"
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Document uploaded successfully",
+            "schema": {"properties": {"message": {"type": "string"}}}
+        },
+        "400": {"description": "Invalid file"},
+        "500": {"description": "Upload failed"}
+    }
+})
 def upload_file():
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
@@ -844,6 +923,32 @@ def upload_file():
     return jsonify({"error": "File type not allowed"}), 400
 
 @app.route('/document_delete', methods=['POST'])
+@swag_from({
+    "tags": ["Documents"],
+    "parameters": [
+        {
+            "name": "filename",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string"}
+                }
+            },
+            "required": True,
+            "description": "Name of the file to delete"
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Document deleted successfully",
+            "schema": {"properties": {"message": {"type": "string"}}}
+        },
+        "400": {"description": "No filename provided"},
+        "404": {"description": "File not found"},
+        "500": {"description": "Deletion failed"}
+    }
+})
 def delete_document():
     data = request.get_json()
     filename = data.get('filename')
@@ -867,7 +972,31 @@ def delete_document():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/link_upload', methods=['POST'])
-async def crawl():
+@swag_from({
+    "tags": ["Links"],
+    "parameters": [
+        {
+            "name": "url",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"}
+                }
+            },
+            "required": True
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Link processed successfully",
+            "schema": {"properties": {"message": {"type": "string"}}}
+        },
+        "400": {"description": "Invalid URL"},
+        "500": {"description": "Processing failed"}
+    }
+})
+def process_link():
     try:
         data = request.get_json()
         if not data:
@@ -878,7 +1007,7 @@ async def crawl():
             return jsonify({"error": "No URL provided"}), 400
 
         # Extract and store link data
-        link_data = await chatbot.extract_data_from_web_page(url)
+        link_data = asyncio.run(chatbot.extract_data_from_web_page(url))
         link_id = link_data['url']  # Use URL as ID
         
         # Track link share in analytics
@@ -903,6 +1032,32 @@ async def crawl():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/link_delete', methods=['POST'])
+@swag_from({
+    "tags": ["Links"],
+    "parameters": [
+        {
+            "name": "filename",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string"}
+                }
+            },
+            "required": True,
+            "description": "Name of the link file to delete"
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Link deleted successfully",
+            "schema": {"properties": {"response": {"type": "string"}}}
+        },
+        "400": {"description": "No filename provided"},
+        "404": {"description": "File not found"},
+        "500": {"description": "Deletion failed"}
+    }
+})
 def delete_link():
     data = request.get_json()
     filename = data.get('filename')
@@ -921,6 +1076,45 @@ def delete_link():
         return jsonify({"response": f"Error: {e}"}), 500
 
 @app.route('/store_memory', methods=['POST'])
+@swag_from({
+    "tags": ["Memory"],
+    "parameters": [
+        {
+            "name": "memory",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "userMessage": {"type": "string"},
+                    "botMessage": {"type": "string"},
+                    "documents": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "links": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "conversationId": {"type": "string"}
+                }
+            },
+            "required": True
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Memory stored successfully",
+            "schema": {
+                "properties": {
+                    "message": {"type": "string"},
+                    "memory": {"type": "object"}
+                }
+            }
+        },
+        "400": {"description": "No message provided"},
+        "500": {"description": "Storage failed"}
+    }
+})
 async def store_memory():
     data = request.get_json()
     user_message = data.get('userMessage')
@@ -945,6 +1139,46 @@ async def store_memory():
         return jsonify({"error": f"Failed to store memory: {str(e)}"}), 500
 
 @app.route('/retrieve_memory', methods=['POST'])
+@swag_from({
+    "tags": ["Memory"],
+    "parameters": [
+        {
+            "name": "query",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "conversationId": {"type": "string"},
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "default": 5}
+                }
+            },
+            "required": True
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Retrieved memories",
+            "schema": {
+                "properties": {
+                    "memories": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "timestamp": {"type": "string"},
+                                "type": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "400": {"description": "No conversation ID provided"},
+        "500": {"description": "Retrieval failed"}
+    }
+})
 async def retrieve_memory():
     data = request.get_json()
     conversation_id = data.get('conversationId')
@@ -965,7 +1199,36 @@ async def retrieve_memory():
         return jsonify({"error": f"Failed to retrieve memories: {str(e)}"}), 500
 
 @app.route('/chat', methods=['POST'])
-async def chat():
+@swag_from({
+    "tags": ["Chat"],
+    "parameters": [
+        {
+            "name": "message",
+            "in": "body",
+            "type": "object",
+            "required": True,
+            "properties": {
+                "message": {"type": "string"},
+                "type": {"type": "string"},
+                "metadata": {"type": "object"},
+                "conversation_id": {"type": "string"},
+                "document": {"type": "string"},
+                "link": {"type": "string"},
+                "user_id": {"type": "string"},
+                "context": {"type": "string"}
+            }
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Successful response",
+            "schema": {"properties": {"response": {"type": "string"}}}
+        },
+        "400": {"description": "Bad request"},
+        "500": {"description": "Internal server error"}
+    }
+})
+def chat():
     start_time = datetime.now()
     data = request.get_json()
     user_input = data.get('message')
@@ -991,29 +1254,29 @@ async def chat():
     try:
         # Handle document-based chat
         if document_name and document_name in chatbot.documents:
-            response = await chatbot.response_generator.generate_document_response(
+            response = asyncio.run(chatbot.response_generator.generate_document_response(
                 user_input,
                 chatbot.documents[document_name]
-            )
+            ))
         # Handle link-based chat
         elif link and link in chatbot.links:
-            response = await chatbot.response_generator.generate_link_response(
+            response = asyncio.run(chatbot.response_generator.generate_link_response(
                 user_input,
                 chatbot.links[link]['content']
-            )
+            ))
         # Handle regular chat
         else:
-            response = await chatbot.response_generator.generate_simple_response(user_input)
+            response = asyncio.run(chatbot.response_generator.generate_simple_response(user_input))
         
         # Store the conversation in memory
         if conversation_id:
-            await chatbot.memory_manager.store_memory(
+            asyncio.run(chatbot.memory_manager.store_memory(
                 conversation_id,
                 user_input,
                 response,
                 [document_name] if document_name else None,
                 [link] if link else None
-            )
+            ))
         
         # Track response time
         end_time = datetime.now()
@@ -1024,9 +1287,40 @@ async def chat():
     except Exception as e:
         logger.error(f"Error in chat: {e}")
         analytics_service.track_error("chat_error")
-        return jsonify({'response': f'Error: {e}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/link_metadata', methods=['POST'])
+@swag_from({
+    "tags": ["Links"],
+    "parameters": [
+        {
+            "name": "url",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"}
+                }
+            },
+            "required": True
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Link metadata retrieved successfully",
+            "schema": {
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "image": {"type": "string"},
+                    "content": {"type": "string"}
+                }
+            }
+        },
+        "400": {"description": "URL is required"},
+        "500": {"description": "Metadata extraction failed"}
+    }
+})
 def get_link_metadata():
     data = request.get_json()
     url = data.get('url')
@@ -1042,24 +1336,116 @@ def get_link_metadata():
 
 # Add analytics endpoints
 @app.route('/analytics/chat', methods=['GET'])
+@swag_from({
+    "tags": ["Analytics"],
+    "parameters": [
+        {
+            "name": "chat_id",
+            "in": "query",
+            "type": "string",
+            "required": False
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Chat analytics data",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "message_count": {"type": "integer"},
+                    "last_activity": {"type": "string"},
+                    "document_count": {"type": "integer"},
+                    "link_count": {"type": "integer"}
+                }
+            }
+        }
+    }
+})
 def get_chat_analytics():
     chat_id = request.args.get('chat_id')
     stats = analytics_service.get_chat_statistics(chat_id)
     return jsonify(stats)
 
 @app.route('/analytics/documents', methods=['GET'])
+@swag_from({
+    "tags": ["Analytics"],
+    "parameters": [
+        {
+            "name": "chat_id",
+            "in": "query",
+            "type": "string",
+            "required": False
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Document analytics data",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer"},
+                    "total_size": {"type": "integer"},
+                    "types": {"type": "object"}
+                }
+            }
+        }
+    }
+})
 def get_document_analytics():
     chat_id = request.args.get('chat_id')
     stats = analytics_service.get_document_statistics(chat_id)
     return jsonify(stats)
 
 @app.route('/analytics/links', methods=['GET'])
+@swag_from({
+    "tags": ["Analytics"],
+    "parameters": [
+        {
+            "name": "chat_id",
+            "in": "query",
+            "type": "string",
+            "required": False
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Link analytics data",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer"},
+                    "domains": {"type": "object"}
+                }
+            }
+        }
+    }
+})
 def get_link_analytics():
     chat_id = request.args.get('chat_id')
     stats = analytics_service.get_link_statistics(chat_id)
     return jsonify(stats)
 
 @app.route('/analytics/usage', methods=['GET'])
+@swag_from({
+    "tags": ["Analytics"],
+    "responses": {
+        "200": {
+            "description": "Usage analytics data",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "daily_active": {"type": "integer"},
+                    "weekly_active": {"type": "integer"},
+                    "monthly_active": {"type": "integer"},
+                    "peak_hours": {
+                        "type": "array",
+                        "items": {"type": "integer"}
+                    }
+                }
+            }
+        }
+    }
+})
 def get_usage_analytics():
     stats = analytics_service.get_usage_statistics()
     return jsonify(stats)
