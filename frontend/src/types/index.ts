@@ -12,13 +12,30 @@ export interface LinkMetadata {
   image?: string;
 }
 
+export interface WebSearchMetadata {
+  isWebSearch: boolean;
+  searchResults?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+}
+
+export interface SearchResult {
+  title: string;
+  content: string;
+  source: string;
+  relevance?: number;
+}
+
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
   content: string;
+  role: 'user' | 'assistant';
+  type: 'text' | 'file' | 'link' | 'web_search';
   timestamp: string;
-  type: 'text' | 'file' | 'link';
-  metadata?: FileMetadata | LinkMetadata;
+  metadata?: FileMetadata | LinkMetadata | WebSearchMetadata;
+  searchResults?: SearchResult[];
 }
 
 export interface Chat {

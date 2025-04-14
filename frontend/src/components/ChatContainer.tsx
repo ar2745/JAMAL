@@ -66,6 +66,7 @@ export default function ChatContainer({
           type: message.type,
           metadata: message.metadata || {},
           context: context || undefined,
+          isWebSearch: message.type === 'web_search'
         }),
       });
 
@@ -78,8 +79,12 @@ export default function ChatContainer({
         id: generateUniqueId(),
         role: "assistant",
         content: data.response,
-        type: "text",
+        type: message.type === 'web_search' ? 'web_search' : 'text',
         timestamp: new Date().toISOString(),
+        metadata: message.type === 'web_search' ? {
+          isWebSearch: true,
+          searchResults: data.searchResults
+        } : undefined
       };
 
       onSendMessage(assistantMessage);

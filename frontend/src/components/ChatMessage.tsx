@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { FileMetadata, LinkMetadata, Message } from "@/types";
+import { FileMetadata, LinkMetadata, Message, SearchResult, WebSearchMetadata } from "@/types";
 import { Bot, FileText, Link, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -15,6 +15,40 @@ function isFileMetadata(metadata: any): metadata is FileMetadata {
 
 function isLinkMetadata(metadata: any): metadata is LinkMetadata {
   return metadata && 'url' in metadata;
+}
+
+function SearchResults({ results }: { results: SearchResult[] }) {
+  return (
+    <div className="mt-2 space-y-2">
+      {results.map((result, index) => (
+        <div key={index} className="bg-muted/50 rounded-lg p-3">
+          <h4 className="font-medium text-sm">{result.title}</h4>
+          <p className="text-sm text-muted-foreground mt-1">{result.content}</p>
+          <span className="text-xs text-muted-foreground mt-1 block">Source: {result.source}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WebSearchResults({ results }: { results: Array<{ title: string, url: string, snippet: string }> }) {
+  return (
+    <div className="mt-4 space-y-3">
+      {results.map((result, index) => (
+        <a
+          key={index}
+          href={result.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+        >
+          <h4 className="font-medium text-sm text-primary">{result.title}</h4>
+          <p className="text-sm text-muted-foreground mt-1">{result.snippet}</p>
+          <span className="text-xs text-muted-foreground mt-1 block">{result.url}</span>
+        </a>
+      ))}
+    </div>
+  );
 }
 
 export default function ChatMessage({ message, isLast = false }: ChatMessageProps) {
@@ -191,6 +225,17 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
         }
         console.log('Rendering link message with metadata:', message.metadata);
         return renderLinkMessage(message.metadata);
+      
+      case 'web_search':
+        const metadata = message.metadata as WebSearchMetadata;
+        return (
+          <div>
+            <div className="markdown-content prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown>{message.content}</ReactMarkdown>
+            </div>
+            {metadata.searchResults && <WebSearchResults results={metadata.searchResults} />}
+          </div>
+        );
       
       case 'text':
       default:

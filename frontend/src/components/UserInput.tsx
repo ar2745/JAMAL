@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Message } from "@/types";
-import { Link, Upload } from "lucide-react";
+import { Globe, Link, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import LinkInputDialog from "./LinkInputDialog";
 
@@ -25,6 +25,7 @@ export default function UserInput({
 }: UserInputProps) {
   const [message, setMessage] = useState("");
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [isWebSearchMode, setIsWebSearchMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -43,77 +44,17 @@ export default function UserInput({
     const processedMessage = message.trim();
     setMessage("");
 
-    // Check for URLs in the message
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = processedMessage.match(urlRegex);
-    let remainingMessage = processedMessage;
+    // Create the message object with web search mode flag
+    const textMessage: Message = {
+      id: generateUniqueId(),
+      content: processedMessage,
+      role: 'user',
+      type: isWebSearchMode ? 'web_search' : 'text',
+      timestamp: new Date().toISOString(),
+      metadata: isWebSearchMode ? { isWebSearch: true } : undefined
+    };
 
-    if (urls) {
-      for (const url of urls) {
-        try {
-          // Upload the link to our backend
-          const uploadResponse = await fetch('http://localhost:5000/link_upload', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ url }),
-          });
-
-          if (!uploadResponse.ok) {
-            throw new Error('Failed to upload link');
-          }
-
-          const response = await uploadResponse.json();
-          const linkData = response.link; // Access the nested link property
-
-          // Create a link message with metadata from the upload response
-          const linkMessage: Message = {
-            id: generateUniqueId(),
-            content: url,
-            role: 'user',
-            type: 'link',
-            metadata: {
-              url: url,
-              title: linkData.title,
-              description: linkData.description,
-              image: linkData.image
-            },
-            timestamp: new Date().toISOString()
-          };
-
-          onSendMessage(linkMessage);
-          remainingMessage = remainingMessage.replace(url, '').trim();
-        } catch (error) {
-          console.error('Error processing link:', error);
-          // Fallback to basic link message if metadata fetch fails
-          const linkMessage: Message = {
-            id: generateUniqueId(),
-            content: url,
-            role: 'user',
-            type: 'link',
-            metadata: {
-              url: url
-            },
-            timestamp: new Date().toISOString()
-          };
-          onSendMessage(linkMessage);
-          remainingMessage = remainingMessage.replace(url, '').trim();
-        }
-      }
-    }
-
-    // If there's any remaining text, send it as a regular message
-    if (remainingMessage) {
-      const textMessage: Message = {
-        id: generateUniqueId(),
-        content: remainingMessage,
-        role: 'user',
-        type: 'text',
-        timestamp: new Date().toISOString()
-      };
-      onSendMessage(textMessage);
-    }
+    onSendMessage(textMessage);
   };
 
   const handleLinkDialogSubmit = async (url: string) => {
@@ -249,10 +190,23 @@ export default function UserInput({
       >
         <Link className="h-4 w-4" />
       </Button>
+      <Button
+        variant={isWebSearchMode ? "default" : "outline"}
+        size="icon"
+        onClick={() => setIsWebSearchMode(!isWebSearchMode)}
+        disabled={isLoading}
+        className="relative"
+        title={isWebSearchMode ? "Web Search Mode Active" : "Enable Web Search"}
+      >
+        <Globe className="h-4 w-4" />
+        {isWebSearchMode && (
+          <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" />
+        )}
+      </Button>
       <Input
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Type a message..."
+        placeholder={isWebSearchMode ? "Search the web..." : "Type a message..."}
         className="flex-1"
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
@@ -263,7 +217,7 @@ export default function UserInput({
         disabled={isLoading}
       />
       <Button onClick={handleSendMessage} disabled={isLoading}>
-        Send
+        {isWebSearchMode ? "Search" : "Send"}
       </Button>
       <LinkInputDialog
         isOpen={isLinkDialogOpen}
