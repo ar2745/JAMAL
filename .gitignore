@@ -36,6 +36,7 @@ memory-bank/
 backend/app/uploads
 backend/app/chats
 backend/app/links
+/docs
 
 # Node modules and build files
 node_modules/

@@ -23,8 +23,8 @@ class SwaggerConfig:
         """Get the Swagger template configuration."""
         return {
             "info": {
-                "title": "Responsive Chat API",
-                "description": "API documentation for the Responsive Chat application",
+                "title": "JAMAL",
+                "description": "API documentation for the JAMAL application",
                 "version": "1.0"
             },
             "schemes": ["http", "https"]

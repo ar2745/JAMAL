@@ -1,17 +1,20 @@
 # ChatMessage
 
 ## Overview
-The ChatMessage component is responsible for rendering individual chat messages with support for different message types including text, files, links, and web search results. It includes rich formatting, animations, and interactive elements.
+The ChatMessage component is responsible for rendering individual chat messages with support for different message types including text, files, links, web search results, and LLM-generated responses. It includes rich formatting, animations, interactive elements, and streaming support for LLM responses.
 
 ## Props
 | Prop Name | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | message | Message | Yes | - | The message object to display |
 | isLast | boolean | No | false | Indicates if this is the last message in the chat |
+| isStreaming | boolean | No | false | Indicates if the message is currently streaming |
+| streamedContent | string | No | "" | Current content for streaming messages |
 
 ## State Management
 The component manages the following state:
 - `isVisible`: Boolean state for fade-in animation
+- `isTyping`: Boolean state for typing animation during streaming
 - Uses TypeScript type guards for metadata validation
 
 ## Subcomponents
@@ -23,6 +26,12 @@ The component manages the following state:
    - Renders web search results as clickable links
    - Includes title, snippet, and URL
    - Opens links in new tab
+
+3. `LLMResponse`
+   - Renders LLM-generated responses
+   - Supports streaming with typing animation
+   - Displays model metadata and performance metrics
+   - Shows confidence scores and processing time
 
 ## Message Types
 The component supports rendering different types of messages:
@@ -47,6 +56,13 @@ The component supports rendering different types of messages:
    - List of search results with links
    - Each result shows title, snippet, and URL
 
+5. **LLM Response Messages**
+   - Streaming support with typing animation
+   - Model metadata display (type, temperature, tokens)
+   - Performance metrics (processing time, confidence)
+   - Markdown formatting for responses
+   - Error state handling
+
 ## Styling
 The component uses Tailwind CSS for styling and includes:
 - Responsive message bubbles
@@ -55,6 +71,9 @@ The component uses Tailwind CSS for styling and includes:
 - Proper spacing and alignment
 - Markdown formatting for assistant messages
 - Fade-in animations for new messages
+- Typing animation for streaming responses
+- Performance metric badges
+- Error state styling
 
 ## Dependencies
 - `@/lib/utils`: For class name merging
@@ -62,6 +81,8 @@ The component uses Tailwind CSS for styling and includes:
 - `lucide-react`: For icons
 - `react-markdown`: For markdown rendering
 - `react`: For component lifecycle and hooks
+- `@/services/llm`: For LLM integration
+- `@/services/analytics`: For performance tracking
 
 ## Notes
 - Messages are animated with a fade-in effect
@@ -70,4 +91,8 @@ The component uses Tailwind CSS for styling and includes:
 - Web search results are rendered as clickable cards
 - Assistant messages support markdown formatting
 - All interactive elements have hover states
-- Messages are properly aligned based on sender (user/assistant) 
+- Messages are properly aligned based on sender (user/assistant)
+- LLM responses include model metadata and performance metrics
+- Streaming responses show typing animation
+- Error states are handled gracefully with user feedback
+- Performance metrics are displayed for LLM responses 

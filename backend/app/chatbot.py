@@ -2,18 +2,10 @@ import asyncio
 import json
 import logging
 import os
-import re
-import threading
-import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-import chromadb
-import docx
-import PyPDF2
-import requests
 from asgiref.wsgi import WsgiToAsgi
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler
@@ -42,15 +34,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+################################################## Flask App ################################################## 
 app = Flask(__name__)
+asgi_app = WsgiToAsgi(app)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
 
-# Convert Flask app to ASGI
-asgi_app = WsgiToAsgi(app)
 
-# Initialize Swagger
+################################################## Services ##################################################
+# Initialize services
+analytics_service = AnalyticsService()
+memory_manager = MemoryManager()
+llm_integration = LLMIntegration()
+response_generator = ResponseGenerator(llm_integration)
 swagger = Swagger(app, config=SwaggerConfig.get_config(), template=SwaggerConfig.get_template())
+chatbot = Chatbot("http://localhost:11434/api/generate")
 
+################################################## Configuration ##################################################
 CHATS_FOLDER = 'chats'
 UPLOADS_FOLDER = 'uploads'
 LINKS_FOLDER = 'links'
@@ -72,13 +71,7 @@ if not os.path.exists(LINKS_FOLDER):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Initialize services
-analytics_service = AnalyticsService()
-memory_manager = MemoryManager()
-llm_integration = LLMIntegration()
-response_generator = ResponseGenerator(llm_integration)
-chatbot = Chatbot("http://localhost:11434/api/generate")
-
+################################################## API Routes ##################################################
 @app.route('/', methods=['GET'])
 @swag_from({
     "tags": ["General"],
