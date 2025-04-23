@@ -1,4 +1,4 @@
-# 🚀 Chatverket
+# 🚀 JAMAL
 
 <div align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python Version">
@@ -70,7 +70,7 @@ A modern, responsive chatbot with memory and document processing capabilities, b
 ## 🏗️ Architecture
 
 ```
-chatverket/
+JAMAL/
 ├── frontend/                  # React frontend
 │   ├── src/
 │   │   ├── components/       # React components
@@ -108,8 +108,8 @@ chatverket/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/chatverket.git
-cd chatverket
+git clone {this repository}
+cd JAMAL
 ```
 
 2. Install backend dependencies:
@@ -126,7 +126,7 @@ npm install
 
 4. Start Ollama (required for LLM integration):
 ```bash
-ollama serve
+cd ollama.ollama serve
 ```
 
 ### Running the Application
@@ -143,7 +143,7 @@ npm run dev
 ```
 
 3. Access the application:
-   - Frontend: `http://localhost:3000`
+   - Frontend: `http://localhost:5174`
    - API Base URL: `http://localhost:5000`
    - Swagger UI: `http://localhost:5000/docs`
    - ReDoc: `http://localhost:5000/redoc`
