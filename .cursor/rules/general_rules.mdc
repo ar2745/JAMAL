@@ -1,0 +1,63 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Code Change Policy
+- NO code changes are allowed without explicit user approval
+- ALL proposed changes must be presented and explained before implementation
+- Even if a solution seems obvious, MUST wait for user confirmation
+- This applies to ALL files, including:
+  - Backend code
+  - Frontend code
+  - Configuration files
+  - Documentation
+  - Dependencies
+
+## Priority Rules
+1. ALWAYS check the entire codebase before making changes
+   - Understand file locations and relationships
+   - Review existing patterns and practices
+   - Identify affected components
+   - Follow established directory structure
+
+2. ALWAYS respect current styling and coding practices
+   - Never remove existing functionality
+   - Never modify styling without approval
+   - Maintain component structure
+   - Follow established patterns
+
+3. ALWAYS work in organized, incremental steps
+   - Make changes in small, manageable chunks
+   - Get approval for each modification
+   - Monitor changes periodically
+   - Document all modifications
+
+## Change Proposal Process
+1. Identify potential change needed
+2. Explain the issue/reason for change
+3. Present the proposed change in detail
+4. Wait for explicit user approval
+5. Only proceed after receiving confirmation
+
+## Implementation Rules
+1. Check codebase structure first
+2. Review existing patterns
+3. Make minimal necessary changes
+4. Preserve existing functionality
+5. Maintain current styling
+6. Test each modification
+7. Document all changes
+
+## Exceptions
+- NONE. No exceptions to these rules
+- Even "small" or "obvious" fixes require approval
+- Even during debugging, changes need approval
+
+## Communication Format
+When proposing changes:
+1. Explain WHY the change is needed
+2. Show WHAT specific changes would be made
+3. Describe HOW it would affect the system
+4. List any potential risks or side effects
+5. Wait for user's decision

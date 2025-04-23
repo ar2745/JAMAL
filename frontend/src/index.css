@@ -44,6 +44,10 @@
     --sidebar-accent-foreground: 210 20% 92%;
     --sidebar-border: 220 20% 18%;
     --sidebar-ring: 224 75% 60%;
+
+    --font-size-small: 0.875rem;
+    --font-size-medium: 1rem;
+    --font-size-large: 1.125rem;
   }
 
   .dark {
@@ -229,4 +233,50 @@
 
 .glass-dark {
   @apply bg-gray-900/80 backdrop-blur-sm border border-gray-800/30;
+}
+
+.font-size-small {
+  font-size: var(--font-size-small);
+}
+
+.font-size-medium {
+  font-size: var(--font-size-medium);
+}
+
+.font-size-large {
+  font-size: var(--font-size-large);
+}
+
+/* Message display styles */
+.message-display-compact {
+  --message-padding: 0.5rem;
+  --message-margin: 0.25rem;
+  --message-border-radius: 0.25rem;
+  --message-gap: 0.5rem;
+}
+
+.message-display-normal {
+  --message-padding: 0.75rem;
+  --message-margin: 0.5rem;
+  --message-border-radius: 0.375rem;
+  --message-gap: 0.75rem;
+}
+
+.message-display-comfortable {
+  --message-padding: 1rem;
+  --message-margin: 0.75rem;
+  --message-border-radius: 0.5rem;
+  --message-gap: 1rem;
+}
+
+/* Apply message display styles to chat messages */
+.chat-message {
+  padding: var(--message-padding);
+  margin: var(--message-margin) 0;
+  border-radius: var(--message-border-radius);
+}
+
+/* Update message container spacing */
+.message-container {
+  gap: var(--message-gap);
 }

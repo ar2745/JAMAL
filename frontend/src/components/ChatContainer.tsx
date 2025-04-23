@@ -109,7 +109,7 @@ export default function ChatContainer({
     <div className="flex flex-col h-full">
       {/* Chat Messages */}
       <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
+        <div className="space-y-4 message-container">
           {messages.map((message, index) => (
             <ChatMessage
               key={message.id}

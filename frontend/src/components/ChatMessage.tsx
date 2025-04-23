@@ -3,6 +3,7 @@ import { FileMetadata, LinkMetadata, Message, SearchResult, WebSearchMetadata } 
 import { Bot, FileText, Link, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useSettings } from "../contexts/settings-context";
 
 interface ChatMessageProps {
   message: Message;
@@ -53,6 +54,7 @@ function WebSearchResults({ results }: { results: Array<{ title: string, url: st
 
 export default function ChatMessage({ message, isLast = false }: ChatMessageProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const { settings } = useSettings();
   
   // Animation effect when message appears
   useEffect(() => {
@@ -62,6 +64,15 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
     
     return () => clearTimeout(timer);
   }, []);
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: settings.timestampFormat === '12h'
+    });
+  };
 
   const renderFileMessage = (metadata: FileMetadata) => {
     // Get file extension from fileName
@@ -281,10 +292,7 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
             {message.role === "assistant" ? "JAMAL" : "You"}
           </div>
           <div className="text-xs text-muted-foreground">
-            {new Date(message.timestamp).toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}
+            {formatTimestamp(message.timestamp)}
           </div>
         </div>
         
@@ -292,7 +300,7 @@ export default function ChatMessage({ message, isLast = false }: ChatMessageProp
           renderMessageContent()
         ) : (
           <div className={cn(
-            "rounded-lg px-4 py-2 inline-block max-w-full",
+            "rounded-lg px-4 py-2 inline-block max-w-full chat-message",
             message.role === "assistant" 
               ? "bg-muted text-foreground" 
               : "bg-primary text-primary-foreground"

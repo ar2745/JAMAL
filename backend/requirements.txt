@@ -1,2 +1,0 @@
-flasgger==0.9.7
-googlesearch-python==1.2.3 

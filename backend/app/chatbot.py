@@ -23,8 +23,10 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 try:
+    from .image_generation import ImageGenerator
     from .llm_integration import LLMIntegration, ModelType
 except ImportError:
+    from image_generation import ImageGenerator
     from llm_integration import LLMIntegration, ModelType
 
 # Configure logging
@@ -1236,6 +1238,8 @@ def chat():
     document_name = data.get('document')
     link = data.get('link')
     user_id = data.get('user_id', 'anonymous')
+    metadata = data.get('metadata', {})
+    is_reasoning_mode = metadata.get('isReasoningMode', False)
     
     # Track user activity
     analytics_service.track_user_activity(user_id)
@@ -1254,19 +1258,34 @@ def chat():
     try:
         # Handle document-based chat
         if document_name and document_name in chatbot.documents:
-            response = asyncio.run(chatbot.response_generator.generate_document_response(
-                user_input,
-                chatbot.documents[document_name]
-            ))
+            if is_reasoning_mode:
+                response = asyncio.run(chatbot.response_generator.generate_reasoned_response(
+                    user_input,
+                    chatbot.documents[document_name]
+                ))
+            else:
+                response = asyncio.run(chatbot.response_generator.generate_document_response(
+                    user_input,
+                    chatbot.documents[document_name]
+                ))
         # Handle link-based chat
         elif link and link in chatbot.links:
-            response = asyncio.run(chatbot.response_generator.generate_link_response(
-                user_input,
-                chatbot.links[link]['content']
-            ))
+            if is_reasoning_mode:
+                response = asyncio.run(chatbot.response_generator.generate_reasoned_response(
+                    user_input,
+                    chatbot.links[link]['content']
+                ))
+            else:
+                response = asyncio.run(chatbot.response_generator.generate_link_response(
+                    user_input,
+                    chatbot.links[link]['content']
+                ))
         # Handle regular chat
         else:
-            response = asyncio.run(chatbot.response_generator.generate_simple_response(user_input))
+            if is_reasoning_mode:
+                response = asyncio.run(chatbot.response_generator.generate_reasoned_response(user_input))
+            else:
+                response = asyncio.run(chatbot.response_generator.generate_simple_response(user_input))
         
         # Store the conversation in memory
         if conversation_id:
@@ -1449,6 +1468,100 @@ def get_link_analytics():
 def get_usage_analytics():
     stats = analytics_service.get_usage_statistics()
     return jsonify(stats)
+
+@app.route('/generate_image', methods=['POST'])
+@swag_from({
+    "tags": ["Image Generation"],
+    "parameters": [
+        {
+            "name": "prompt",
+            "in": "body",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "negative_prompt": {"type": "string"},
+                    "num_inference_steps": {"type": "integer", "default": 50},
+                    "guidance_scale": {"type": "number", "default": 7.5},
+                    "width": {"type": "integer", "default": 512},
+                    "height": {"type": "integer", "default": 512},
+                    "seed": {"type": "integer", "default": None}
+                },
+                "required": ["prompt"]
+            }
+        }
+    ],
+    "responses": {
+        "200": {
+            "description": "Image generated successfully",
+            "schema": {
+                "properties": {
+                    "image_url": {"type": "string"},
+                    "metadata": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "negative_prompt": {"type": "string"},
+                            "num_inference_steps": {"type": "integer"},
+                            "guidance_scale": {"type": "number"},
+                            "width": {"type": "integer"},
+                            "height": {"type": "integer"},
+                            "seed": {"type": "integer"},
+                            "generation_time": {"type": "number"}
+                        }
+                    }
+                }
+            }
+        },
+        "400": {"description": "Invalid request parameters"},
+        "500": {"description": "Image generation failed"}
+    }
+})
+def generate_image():
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt')
+        
+        if not prompt:
+            return jsonify({"error": "Prompt is required"}), 400
+            
+        # Get optional parameters with defaults
+        negative_prompt = data.get('negative_prompt', "")
+        num_inference_steps = data.get('num_inference_steps', 50)
+        guidance_scale = data.get('guidance_scale', 7.5)
+        width = data.get('width', 512)
+        height = data.get('height', 512)
+        seed = data.get('seed')
+        
+        # Generate image using the ImageGenerator
+        image_generator = ImageGenerator()
+        result = asyncio.run(image_generator.generate_image(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            width=width,
+            height=height,
+            seed=seed
+        ))
+        
+        return jsonify({
+            "image_url": result["image_url"],
+            "metadata": {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "generation_time": result["generation_time"]
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Image generation failed: {str(e)}")
+        return jsonify({"error": "Image generation failed"}), 500
 
 if __name__ == "__main__":
     import uvicorn

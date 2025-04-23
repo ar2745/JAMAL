@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Message } from "@/types";
-import { Globe, Link, Upload } from "lucide-react";
+import { Globe, Lightbulb, Link, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import LinkInputDialog from "./LinkInputDialog";
 
@@ -26,6 +26,7 @@ export default function UserInput({
   const [message, setMessage] = useState("");
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [isWebSearchMode, setIsWebSearchMode] = useState(false);
+  const [isReasoningMode, setIsReasoningMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -44,14 +45,17 @@ export default function UserInput({
     const processedMessage = message.trim();
     setMessage("");
 
-    // Create the message object with web search mode flag
+    // Create the message object with mode flags
     const textMessage: Message = {
       id: generateUniqueId(),
       content: processedMessage,
       role: 'user',
       type: isWebSearchMode ? 'web_search' : 'text',
       timestamp: new Date().toISOString(),
-      metadata: isWebSearchMode ? { isWebSearch: true } : undefined
+      metadata: {
+        isWebSearch: isWebSearchMode,
+        isReasoningMode: isReasoningMode
+      }
     };
 
     onSendMessage(textMessage);
@@ -201,6 +205,19 @@ export default function UserInput({
         <Globe className="h-4 w-4" />
         {isWebSearchMode && (
           <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" />
+        )}
+      </Button>
+      <Button
+        variant={isReasoningMode ? "default" : "outline"}
+        size="icon"
+        onClick={() => setIsReasoningMode(!isReasoningMode)}
+        disabled={isLoading}
+        className="relative"
+        title={isReasoningMode ? "Reasoning Mode Active" : "Enable Reasoning Mode"}
+      >
+        <Lightbulb className="h-4 w-4" />
+        {isReasoningMode && (
+          <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full" />
         )}
       </Button>
       <Input

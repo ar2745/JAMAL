@@ -5,9 +5,11 @@ import ChatContainer from "./components/ChatContainer";
 import Dashboard from "./components/Dashboard";
 import { FileList } from "./components/FileList";
 import { LinkList } from "./components/LinkList";
+import { SettingsMenu } from "./components/SettingsMenu";
 import Sidebar from "./components/Sidebar";
 import { ThemeProvider } from "./components/theme-provider";
 import { ThemeToggle } from "./components/theme-toggle";
+import { SettingsProvider } from "./contexts/settings-context";
 import { Chat, Message } from "./types";
 import { getDocuments, getLinks } from "./utils/api";
 
@@ -214,74 +216,79 @@ export default function App() {
 
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <div className="min-h-screen bg-background">
-        <div className="flex h-screen">
-          <Sidebar
-            isMobile={isMobile}
-            activeSection={activeSection}
-            setActiveSection={setActiveSection}
-            documents={documents}
-            links={links}
-            onDeleteDocument={handleDeleteDocument}
-            onDeleteLink={handleDeleteLink}
-            onSelectDocument={handleSelectDocument}
-            onSelectLink={handleSelectLink}
-            chats={chats}
-            currentChatId={currentChatId}
-            onChatSelect={setCurrentChatId}
-            onCreateNewChat={createNewChat}
-            onDeleteChat={deleteChat}
-          />
-          <main className="flex-1 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b w-[969.33px] h-[77.33px]">
-              <h1 className="text-lg font-semibold">
-                {activeSection === 'chat' 
-                  ? (currentChat?.title || 'New Chat') 
-                  : activeSection === 'dashboard'
-                  ? 'Dashboard'
-                  : activeSection === 'files'
-                  ? 'Files'
-                  : activeSection === 'links'
-                  ? 'Links'
-                  : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
-              </h1>
-              <ThemeToggle />
-            </div>
+      <SettingsProvider>
+        <div className="min-h-screen bg-background">
+          <div className="flex h-screen">
+            <Sidebar
+              isMobile={isMobile}
+              activeSection={activeSection}
+              setActiveSection={setActiveSection}
+              documents={documents}
+              links={links}
+              onDeleteDocument={handleDeleteDocument}
+              onDeleteLink={handleDeleteLink}
+              onSelectDocument={handleSelectDocument}
+              onSelectLink={handleSelectLink}
+              chats={chats}
+              currentChatId={currentChatId}
+              onChatSelect={setCurrentChatId}
+              onCreateNewChat={createNewChat}
+              onDeleteChat={deleteChat}
+            />
+            <main className="flex-1 flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b w-[969.33px] h-[77.33px]">
+                <h1 className="text-lg font-semibold">
+                  {activeSection === 'chat' 
+                    ? (currentChat?.title || 'New Chat') 
+                    : activeSection === 'dashboard'
+                    ? 'Dashboard'
+                    : activeSection === 'files'
+                    ? 'Files'
+                    : activeSection === 'links'
+                    ? 'Links'
+                    : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
+                </h1>
+                <ThemeToggle />
+              </div>
 
-            {/* Main Content */}
-            <div className="flex-1 overflow-hidden">
-              {activeSection === 'dashboard' && (
-                <Dashboard documents={documents} links={links} />
-              )}
-              {activeSection === 'chat' && currentChat && (
-                <ChatContainer
-                  chatTitle={currentChat.title}
-                  setChatTitle={(title) => updateChat(currentChatId!, { title })}
-                  selectedDocuments={selectedDocuments}
-                  selectedLinks={selectedLinks}
-                  messages={currentChat.messages}
-                  onSendMessage={handleSendMessage}
-                />
-              )}
-              {activeSection === 'files' && (
-                <FileList
-                  documents={documents}
-                  onDelete={handleDeleteDocument}
-                  onSelect={handleSelectDocument}
-                />
-              )}
-              {activeSection === 'links' && (
-                <LinkList
-                  links={links}
-                  onDelete={handleDeleteLink}
-                  onSelect={handleSelectLink}
-                />
-              )}
-            </div>
-          </main>
+              {/* Main Content */}
+              <div className="flex-1 overflow-hidden">
+                {activeSection === 'dashboard' && (
+                  <Dashboard documents={documents} links={links} />
+                )}
+                {activeSection === 'chat' && currentChat && (
+                  <ChatContainer
+                    chatTitle={currentChat.title}
+                    setChatTitle={(title) => updateChat(currentChatId!, { title })}
+                    selectedDocuments={selectedDocuments}
+                    selectedLinks={selectedLinks}
+                    messages={currentChat.messages}
+                    onSendMessage={handleSendMessage}
+                  />
+                )}
+                {activeSection === 'files' && (
+                  <FileList
+                    documents={documents}
+                    onDelete={handleDeleteDocument}
+                    onSelect={handleSelectDocument}
+                  />
+                )}
+                {activeSection === 'links' && (
+                  <LinkList
+                    links={links}
+                    onDelete={handleDeleteLink}
+                    onSelect={handleSelectLink}
+                  />
+                )}
+                {activeSection === 'settings' && (
+                  <SettingsMenu />
+                )}
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+      </SettingsProvider>
     </ThemeProvider>
   );
 }

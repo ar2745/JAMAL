@@ -14,6 +14,7 @@ export interface LinkMetadata {
 
 export interface WebSearchMetadata {
   isWebSearch: boolean;
+  isReasoningMode?: boolean;
   searchResults?: Array<{
     title: string;
     url: string;
