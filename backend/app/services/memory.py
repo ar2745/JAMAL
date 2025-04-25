@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -11,8 +13,8 @@ class MemoryManager:
     def __init__(self, api_url: str = "http://localhost:11434"):
         # Remove /api/generate from the URL if it's present
         self.api_url = api_url.replace("/api/generate", "")
-        self.embedding_model = "llama2"
-        self.fallback_model = "llama2:7b"  # Smaller model as fallback
+        self.embedding_model = "nomic-embed-text:latest"
+        self.fallback_model = "nomic-embed-text:latest"  # Smaller model as fallback
         try:
             self.client = chromadb.Client()
             # Try to get existing collection or create new one
@@ -33,10 +35,10 @@ class MemoryManager:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
-                        f"{self.api_url}/api/embed",
+                        f"{self.api_url}/api/embeddings",
                         json={
                             "model": self.embedding_model,
-                            "input": text
+                            "prompt": text
                         }
                     ) as response:
                         if response.status == 200:
@@ -49,7 +51,7 @@ class MemoryManager:
                                 f"{self.api_url}/api/embed",
                                 json={
                                     "model": self.fallback_model,
-                                    "input": text
+                                    "prompt": text
                                 }
                             ) as fallback_response:
                                 if fallback_response.status == 200:
@@ -90,10 +92,33 @@ class MemoryManager:
 
             # Generate embeddings for all text content
             texts_to_embed = [user_message, bot_message]
+            document_contents = []
+            link_contents = []
+
+            # Read document contents
             if documents:
-                texts_to_embed.extend(documents)
+                for doc_name in documents:
+                    try:
+                        with open(os.path.join('documents', doc_name), 'r') as f:
+                            content = f.read()
+                            document_contents.append(content)
+                            texts_to_embed.append(content)
+                    except Exception as e:
+                        logger.error(f"Error reading document {doc_name}: {e}")
+                        raise
+
+            # Read link contents
             if links:
-                texts_to_embed.extend(links)
+                for link_name in links:
+                    try:
+                        with open(os.path.join('links', link_name), 'r') as f:
+                            link_data = json.load(f)
+                            content = link_data.get('content', '')
+                            link_contents.append(content)
+                            texts_to_embed.append(content)
+                    except Exception as e:
+                        logger.error(f"Error reading link {link_name}: {e}")
+                        raise
 
             # Store each piece of text with its embedding in ChromaDB
             for i, text in enumerate(texts_to_embed):

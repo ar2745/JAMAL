@@ -1,6 +1,3 @@
-
-import { Message, Document, Link } from '@/types';
-
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Error handling helper
@@ -84,8 +81,12 @@ export const getDocuments = async () => {
 };
 
 export const deleteDocument = async (id: string) => {
-  const response = await fetch(`${API_BASE_URL}/documents/${id}`, {
-    method: 'DELETE',
+  const response = await fetch(`${API_BASE_URL}/document_delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ filename: id })
   });
   
   return handleResponse(response);
@@ -108,8 +109,12 @@ export const getLinks = async () => {
 };
 
 export const deleteLink = async (id: string) => {
-  const response = await fetch(`${API_BASE_URL}/links/${id}`, {
-    method: 'DELETE',
+  const response = await fetch(`${API_BASE_URL}/link_delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ filename: id })
   });
   
   return handleResponse(response);

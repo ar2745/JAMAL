@@ -4,28 +4,21 @@ import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from asgiref.wsgi import WsgiToAsgi
-from bs4 import BeautifulSoup
-from crawl4ai import AsyncWebCrawler
-from flasgger import Swagger, swag_from
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+import aiohttp
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse, RedirectResponse
+from image_generation import ImageGenerator
+from pydantic import BaseModel, Field
 from services.analytics import AnalyticsService
 from services.chatbot import Chatbot
+from services.llm_integration import LLMIntegration, ModelType
 from services.memory import MemoryManager
 from services.response import ResponseGenerator
 from services.swagger_config import SwaggerConfig
-from werkzeug.utils import secure_filename
-
-try:
-    from services.llm_integration import LLMIntegration, ModelType
-
-    from .image_generation import ImageGenerator
-except ImportError:
-    from image_generation import ImageGenerator
-    from services.llm_integration import LLMIntegration, ModelType
 
 # Configure logging
 logging.basicConfig(
@@ -34,11 +27,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-################################################## Flask App ################################################## 
-app = Flask(__name__)
-asgi_app = WsgiToAsgi(app)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
+# Configuration
+CHATS_FOLDER = 'chats'
+UPLOADS_FOLDER = 'uploads'
+LINKS_FOLDER = 'links'
+ALLOWED_EXTENSIONS = {'pdf', 'txt', 'json', 'docx'}
 
+# Create necessary directories
+for folder in [CHATS_FOLDER, UPLOADS_FOLDER, LINKS_FOLDER]:
+    os.makedirs(folder, exist_ok=True)
+
+# Initialize FastAPI app with proper documentation settings
+app = FastAPI(
+    title="JAMAL API",
+    description="Chatbot API with memory and document processing",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 ################################################## Services ##################################################
 # Initialize services
@@ -46,7 +62,6 @@ analytics_service = AnalyticsService()
 memory_manager = MemoryManager()
 llm_integration = LLMIntegration()
 response_generator = ResponseGenerator(llm_integration)
-swagger = Swagger(app, config=SwaggerConfig.get_config(), template=SwaggerConfig.get_template())
 chatbot = Chatbot("http://localhost:11434/api/generate")
 
 ################################################## Configuration ##################################################
@@ -55,790 +70,545 @@ UPLOADS_FOLDER = 'uploads'
 LINKS_FOLDER = 'links'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'json', 'docx'}
 
-app.config['CHATS_FOLDER'] = CHATS_FOLDER
-app.config['UPLOADS_FOLDER'] = UPLOADS_FOLDER
-app.config['LINKS_FOLDER'] = LINKS_FOLDER
+# Load persisted data
+def load_persisted_data():
+    """Load persisted documents and links from disk."""
+    try:
+        # Load documents
+        for filename in os.listdir(UPLOADS_FOLDER):
+            if filename.endswith('.meta.json'):
+                continue
+            filepath = os.path.join(UPLOADS_FOLDER, filename)
+            metadata_path = os.path.join(UPLOADS_FOLDER, f"{filename}.meta.json")
+            
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                    chatbot.documents[filename] = metadata.get('content', '')
+        
+        # Load links
+        for link_dir in os.listdir(LINKS_FOLDER):
+            link_path = os.path.join(LINKS_FOLDER, link_dir)
+            if not os.path.isdir(link_path):
+                continue
+                
+            metadata_path = os.path.join(link_path, 'meta.json')
+            content_path = os.path.join(link_path, 'content.txt')
+            
+            if os.path.exists(metadata_path) and os.path.exists(content_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                with open(content_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                chatbot.links[link_dir] = {
+                    'url': metadata.get('url'),
+                    'title': metadata.get('title'),
+                    'description': metadata.get('description'),
+                    'image': metadata.get('image'),
+                    'content': content,
+                    'timestamp': metadata.get('timestamp')
+                }
+    except Exception as e:
+        logger.error(f"Error loading persisted data: {e}")
 
-if not os.path.exists(CHATS_FOLDER):
-    os.makedirs(CHATS_FOLDER)
+# Load persisted data on startup
+load_persisted_data()
 
-if not os.path.exists(UPLOADS_FOLDER):
-    os.makedirs(UPLOADS_FOLDER)
-
-if not os.path.exists(LINKS_FOLDER):
-    os.makedirs(LINKS_FOLDER)
-
-def allowed_file(filename):
+def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-################################################## API Routes ##################################################
-@app.route('/', methods=['GET'])
-@swag_from({
-    "tags": ["General"],
-    "responses": {
-        "200": {
-            "description": "Welcome message",
-            "schema": {"properties": {"message": {"type": "string"}}}
-        }
-    }
-})
-def home():
-    return jsonify({"message": "Welcome to the ChatBot API"})
+################################################## Pydantic Models ##################################################
+class Message(BaseModel):
+    text: str
 
-@app.route('/documents', methods=['GET'])
-@swag_from({
-    "tags": ["Documents"],
-    "responses": {
-        "200": {
-            "description": "List of documents",
-            "schema": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        }
-    }
-})
-def list_documents():
-    documents = []
-    for filename, content in chatbot.documents.items():
-        metadata_path = os.path.join(app.config['UPLOADS_FOLDER'], f"{filename}.meta.json")
-        if os.path.exists(metadata_path):
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-                documents.append({
-                    'id': filename,
-                    'filename': filename,
-                    'content': content,
-                    'type': metadata.get('type', 'text/plain'),
-                    'size': metadata.get('size', 0),
-                    'timestamp': metadata.get('timestamp')
-                })
-    return jsonify({"documents": documents})
+class MemoryRequest(BaseModel):
+    conversationId: str
+    userMessage: Message
+    botMessage: Message
+    documents: List[str] = Field(default_factory=list)
+    links: List[str] = Field(default_factory=list)
 
-@app.route('/links', methods=['GET'])
-@swag_from({
-    "tags": ["Links"],
-    "responses": {
-        "200": {
-            "description": "List of processed links",
-            "schema": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        }
-    }
-})
-def list_links():
-    links = []
-    for link_id, link_data in chatbot.links.items():
-        link_dir = os.path.join(app.config['LINKS_FOLDER'], link_id)
-        metadata_path = os.path.join(link_dir, 'meta.json')
-        
-        if os.path.exists(metadata_path):
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-                links.append({
-                    'id': link_id,
-                    'url': link_data['url'],
-                    'title': link_data.get('title'),
-                    'description': link_data.get('description'),
-                    'content': link_data.get('content'),
-                    'timestamp': link_data.get('timestamp')
-                })
-    return jsonify({"links": links})
+class ChatRequest(BaseModel):
+    message: str
+    type: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    conversation_id: Optional[str] = None
+    document: Optional[str] = None
+    link: Optional[str] = None
+    user_id: Optional[str] = None
+    context: Optional[str] = None
 
-@app.route('/document_upload', methods=['POST'])
-@swag_from({
-    "tags": ["Documents"],
-    "parameters": [
-        {
-            "name": "file",
-            "in": "formData",
-            "type": "file",
-            "required": True,
-            "description": "Document to upload"
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Document uploaded successfully",
-            "schema": {"properties": {"message": {"type": "string"}}}
-        },
-        "400": {"description": "Invalid file"},
-        "500": {"description": "Upload failed"}
-    }
-})
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOADS_FOLDER'], filename)
-        file.save(filepath)
-        
-        try:
-            content = chatbot.extract_text_from_file(filepath)
-            chatbot.documents[filename] = content
-            
-            # Create metadata
-            metadata = {
-                'type': file.content_type,
-                'size': os.path.getsize(filepath),
-                'timestamp': datetime.utcnow().isoformat(),
-                'content': content
-            }
-            
-            # Persist document
-            chatbot.persist_document(filename, content, metadata)
-            
-            # Track document upload in analytics
-            chat_id = request.args.get('chat_id', 'default')
-            user_id = request.args.get('user_id', 'anonymous')
-            analytics_service.track_document_upload(chat_id, file.content_type, metadata['size'], user_id)
-            
-            response_data = {
-                "message": "File uploaded successfully",
-                "content": content,
-                "metadata": metadata
-            }
-            return jsonify(response_data), 200
-        except Exception as e:
-            logger.error(f"Error processing file: {e}")
-            analytics_service.track_error("file_upload_error")
-            return jsonify({"error": str(e)}), 500
-            
-    return jsonify({"error": "File type not allowed"}), 400
+class LinkRequest(BaseModel):
+    url: str
 
-@app.route('/document_delete', methods=['POST'])
-@swag_from({
-    "tags": ["Documents"],
-    "parameters": [
-        {
-            "name": "filename",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "filename": {"type": "string"}
-                }
-            },
-            "required": True,
-            "description": "Name of the file to delete"
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Document deleted successfully",
-            "schema": {"properties": {"message": {"type": "string"}}}
-        },
-        "400": {"description": "No filename provided"},
-        "404": {"description": "File not found"},
-        "500": {"description": "Deletion failed"}
-    }
-})
-def delete_document():
-    data = request.get_json()
-    filename = data.get('filename')
-    if not filename:
-        return jsonify({"error": "No filename provided"}), 400
+class ImageRequest(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = ""
+    num_inference_steps: Optional[int] = 50
+    guidance_scale: Optional[float] = 7.5
+    width: Optional[int] = 512
+    height: Optional[int] = 512
+    seed: Optional[int] = None
 
-    uploads_dir = app.config['UPLOADS_FOLDER']
-    filepath = os.path.join(uploads_dir, filename)
-    metadata_path = os.path.join(uploads_dir, f"{filename}.meta.json")
+class DocumentResponse(BaseModel):
+    id: str
+    filename: str
+    content: str
+    type: str
+    size: int
+    timestamp: str
 
-    if not os.path.exists(filepath):
-        return jsonify({"error": "File not found"}), 404
+class LinkResponse(BaseModel):
+    id: str
+    url: str
+    title: Optional[str]
+    description: Optional[str]
+    content: Optional[str]
+    timestamp: Optional[str]
 
-    try:
-        # Delete both the file and its metadata
-        os.remove(filepath)
-        if os.path.exists(metadata_path):
-            os.remove(metadata_path)
-        return jsonify({"message": "File deleted successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+class MemoryResponse(BaseModel):
+    message: str
+    memory: Dict[str, Any]
 
-@app.route('/link_upload', methods=['POST'])
-@swag_from({
-    "tags": ["Links"],
-    "parameters": [
-        {
-            "name": "url",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"}
-                }
-            },
-            "required": True
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Link processed successfully",
-            "schema": {"properties": {"message": {"type": "string"}}}
-        },
-        "400": {"description": "Invalid URL"},
-        "500": {"description": "Processing failed"}
-    }
-})
-def process_link():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-            
-        url = data.get('url')
-        if not url:
-            return jsonify({"error": "No URL provided"}), 400
+class ChatResponse(BaseModel):
+    response: str
 
-        # Extract and store link data
-        link_data = asyncio.run(chatbot.extract_data_from_web_page(url))
-        link_id = link_data['url']  # Use URL as ID
-        
-        # Track link share in analytics
-        chat_id = request.args.get('chat_id', 'default')
-        user_id = request.args.get('user_id', 'anonymous')
-        domain = url.split('/')[2]  # Extract domain from URL
-        analytics_service.track_link_share(chat_id, domain, user_id)
-        
-        return jsonify({
-            "message": "Link processed successfully",
-            "link": {
-                "id": link_id,
-                "title": link_data['title'],
-                "description": link_data['description'],
-                "image": link_data.get('image'),
-                "timestamp": link_data['timestamp']
-            }
-        }), 200
-    except Exception as e:
-        logger.error(f"Error processing link: {e}")
-        analytics_service.track_error("link_upload_error")
-        return jsonify({"error": str(e)}), 500
+class ImageResponse(BaseModel):
+    image_url: str
+    metadata: Dict[str, Any]
 
-@app.route('/link_delete', methods=['POST'])
-@swag_from({
-    "tags": ["Links"],
-    "parameters": [
-        {
-            "name": "filename",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "filename": {"type": "string"}
-                }
-            },
-            "required": True,
-            "description": "Name of the link file to delete"
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Link deleted successfully",
-            "schema": {"properties": {"response": {"type": "string"}}}
-        },
-        "400": {"description": "No filename provided"},
-        "404": {"description": "File not found"},
-        "500": {"description": "Deletion failed"}
-    }
-})
-def delete_link():
-    data = request.get_json()
-    filename = data.get('filename')
-    if not filename:
-        return jsonify({"response": "Error: No filename provided"}), 400
+class MemoryEntry(BaseModel):
+    id: str
+    conversation_id: str
+    type: str
+    timestamp: str
+    text: str
 
-    filepath = os.path.join(app.config['LINKS_FOLDER'], filename)
-    if not os.path.exists(filepath):
-        return jsonify({"response": "Error: File not found"}), 404
+class MemoryViewerResponse(BaseModel):
+    entries: List[MemoryEntry]
+    total: int
+    page: int
+    page_size: int
 
-    try:
-        os.remove(filepath)
-        del chatbot.links[filename]
-        return jsonify({"response": "File deleted successfully"}), 200
-    except Exception as e:
-        return jsonify({"response": f"Error: {e}"}), 500
+################################################## Chat Routes ##################################################
+@app.get("/", response_model=Dict[str, str])
+async def home():
+    return {"message": "Welcome to the ChatBot API"}
 
-@app.route('/store_memory', methods=['POST'])
-@swag_from({
-    "tags": ["Memory"],
-    "parameters": [
-        {
-            "name": "memory",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "userMessage": {"type": "string"},
-                    "botMessage": {"type": "string"},
-                    "documents": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    },
-                    "links": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    },
-                    "conversationId": {"type": "string"}
-                }
-            },
-            "required": True
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Memory stored successfully",
-            "schema": {
-                "properties": {
-                    "message": {"type": "string"},
-                    "memory": {"type": "object"}
-                }
-            }
-        },
-        "400": {"description": "No message provided"},
-        "500": {"description": "Storage failed"}
-    }
-})
-async def store_memory():
-    data = request.get_json()
-    user_message = data.get('userMessage')
-    bot_message = data.get('botMessage')
-    documents = data.get('documents', [])
-    links = data.get('links', [])
-    conversation_id = data.get('conversationId')
-
-    if not user_message and not bot_message:
-        return jsonify({"error": "No message provided"}), 400
-
-    try:
-        memory_entry = await chatbot.memory_manager.store_memory(
-            conversation_id,
-            user_message.get('text', ''),
-            bot_message.get('text', ''),
-            documents,
-            links
-        )
-        return jsonify({"message": "Memory stored successfully", "memory": memory_entry}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to store memory: {str(e)}"}), 500
-
-@app.route('/retrieve_memory', methods=['POST'])
-@swag_from({
-    "tags": ["Memory"],
-    "parameters": [
-        {
-            "name": "query",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "conversationId": {"type": "string"},
-                    "query": {"type": "string"},
-                    "limit": {"type": "integer", "default": 5}
-                }
-            },
-            "required": True
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Retrieved memories",
-            "schema": {
-                "properties": {
-                    "memories": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": {"type": "string"},
-                                "timestamp": {"type": "string"},
-                                "type": {"type": "string"}
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "400": {"description": "No conversation ID provided"},
-        "500": {"description": "Retrieval failed"}
-    }
-})
-async def retrieve_memory():
-    data = request.get_json()
-    conversation_id = data.get('conversationId')
-    query = data.get('query', '')
-    limit = data.get('limit', 5)
-
-    if not conversation_id:
-        return jsonify({"error": "No conversation ID provided"}), 400
-
-    try:
-        memories = await chatbot.memory_manager.retrieve_relevant_memories(
-            conversation_id,
-            query,
-            limit
-        )
-        return jsonify({"memories": memories}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to retrieve memories: {str(e)}"}), 500
-
-@app.route('/chat', methods=['POST'])
-@swag_from({
-    "tags": ["Chat"],
-    "parameters": [
-        {
-            "name": "message",
-            "in": "body",
-            "type": "object",
-            "required": True,
-            "properties": {
-                "message": {"type": "string"},
-                "type": {"type": "string"},
-                "metadata": {"type": "object"},
-                "conversation_id": {"type": "string"},
-                "document": {"type": "string"},
-                "link": {"type": "string"},
-                "user_id": {"type": "string"},
-                "context": {"type": "string"}
-            }
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Successful response",
-            "schema": {"properties": {"response": {"type": "string"}}}
-        },
-        "400": {"description": "Bad request"},
-        "500": {"description": "Internal server error"}
-    }
-})
-def chat():
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
     start_time = datetime.now()
-    data = request.get_json()
-    user_input = data.get('message')
-    conversation_id = data.get('conversation_id')
-    document_name = data.get('document')
-    link = data.get('link')
-    user_id = data.get('user_id', 'anonymous')
-    metadata = data.get('metadata', {})
-    is_reasoning_mode = metadata.get('isReasoningMode', False)
     
-    # Track user activity
-    analytics_service.track_user_activity(user_id)
-    
-    if not user_input:
-        return jsonify({'response': 'Error: Empty input'}), 400
-    elif len(user_input) > 512:
-        return jsonify({'response': 'Error: Input too long'}), 400
-    elif not isinstance(user_input, str):
-        return jsonify({'response': 'Error: Invalid input type'}), 400
-    
-    # Track chat activity
-    chat_id = conversation_id or 'default'
-    analytics_service.track_chat_activity(chat_id, user_id=user_id)
+    if not request.message:
+        raise HTTPException(status_code=400, detail="Empty input")
+    elif len(request.message) > 512:
+        raise HTTPException(status_code=400, detail="Input too long")
     
     try:
-        # Handle document-based chat
-        if document_name and document_name in chatbot.documents:
-            if is_reasoning_mode:
-                response = asyncio.run(chatbot.get_reasoned_response(user_input))
-            else:
-                response = asyncio.run(chatbot.get_simple_response(user_input))
-        # Handle link-based chat
-        elif link and link in chatbot.links:
-            if is_reasoning_mode:
-                response = asyncio.run(chatbot.get_reasoned_response(user_input))
-            else:
-                response = asyncio.run(chatbot.get_simple_response(user_input))
-        # Handle regular chat
-        else:
-            if is_reasoning_mode:
-                response = asyncio.run(chatbot.get_reasoned_response(user_input))
-            else:
-                response = asyncio.run(chatbot.get_simple_response(user_input))
+        # Track user activity
+        analytics_service.track_user_activity(request.user_id or 'anonymous')
         
-        # Store the conversation in memory
-        if conversation_id:
-            asyncio.run(chatbot.memory_manager.store_memory(
-                conversation_id,
-                user_input,
+        # Track chat activity
+        chat_id = request.conversation_id or 'default'
+        analytics_service.track_chat_activity(chat_id, user_id=request.user_id)
+        
+        # Handle different chat types
+        if request.document and request.document in chatbot.documents:
+            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
+        elif request.link and request.link in chatbot.links:
+            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
+        else:
+            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
+        
+        # Store in memory if conversation_id exists
+        if request.conversation_id:
+            await memory_manager.store_memory(
+                request.conversation_id,
+                request.message,
                 response,
-                [document_name] if document_name else None,
-                [link] if link else None
-            ))
+                [request.document] if request.document else None,
+                [request.link] if request.link else None
+            )
         
         # Track response time
         end_time = datetime.now()
         response_time = (end_time - start_time).total_seconds()
         analytics_service.track_response_time(response_time)
         
-        return jsonify({'response': response})
+        return {"response": response}
     except Exception as e:
         logger.error(f"Error in chat: {e}")
         analytics_service.track_error("chat_error")
-        return jsonify({'error': str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/api/link_metadata', methods=['POST'])
-@swag_from({
-    "tags": ["Links"],
-    "parameters": [
-        {
-            "name": "url",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"}
-                }
-            },
-            "required": True
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Link metadata retrieved successfully",
-            "schema": {
-                "properties": {
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "image": {"type": "string"},
-                    "content": {"type": "string"}
-                }
-            }
-        },
-        "400": {"description": "URL is required"},
-        "500": {"description": "Metadata extraction failed"}
-    }
-})
-def get_link_metadata():
-    data = request.get_json()
-    url = data.get('url')
-    
-    if not url:
-        return jsonify({'error': 'URL is required'}), 400
+################################################## Document Routes ##################################################
+@app.get("/documents", response_model=Dict[str, List[DocumentResponse]])
+async def list_documents():
+    documents = []
+    for filename, content in chatbot.documents.items():
+        metadata_path = os.path.join(UPLOADS_FOLDER, f"{filename}.meta.json")
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                documents.append(DocumentResponse(
+                    id=filename,
+                    filename=filename,
+                    content=content,
+                    type=metadata.get('type', 'text/plain'),
+                    size=metadata.get('size', 0),
+                    timestamp=metadata.get('timestamp')
+                ))
+    return {"documents": documents}
+
+@app.post("/document_upload", response_model=Dict[str, Any])
+async def upload_file(file: UploadFile = File(...)):
+    if not allowed_file(file.filename):
+        raise HTTPException(status_code=400, detail="File type not allowed")
     
     try:
-        metadata = chatbot.extract_metadata(url)
-        return jsonify(metadata)
+        content = await file.read()
+        filepath = os.path.join(UPLOADS_FOLDER, file.filename)
+        
+        with open(filepath, 'wb') as f:
+            f.write(content)
+        
+        content_text = chatbot.extract_text_from_file(filepath)
+        chatbot.documents[file.filename] = content_text
+        analytics_service.track_document_upload(file.filename, file.content_type, os.path.getsize(filepath))
+        
+        metadata = {
+            'type': file.content_type,
+            'size': os.path.getsize(filepath),
+            'timestamp': datetime.utcnow().isoformat(),
+            'content': content_text
+        }
+        
+        chatbot.persist_document(file.filename, content_text, metadata)
+        
+        return {
+            "message": "File uploaded successfully",
+            "content": content_text,
+            "metadata": metadata
+        }
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error processing file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Add analytics endpoints
-@app.route('/analytics/chat', methods=['GET'])
-@swag_from({
-    "tags": ["Analytics"],
-    "parameters": [
-        {
-            "name": "chat_id",
-            "in": "query",
-            "type": "string",
-            "required": False
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Chat analytics data",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "message_count": {"type": "integer"},
-                    "last_activity": {"type": "string"},
-                    "document_count": {"type": "integer"},
-                    "link_count": {"type": "integer"}
-                }
-            }
-        }
-    }
-})
-def get_chat_analytics():
-    chat_id = request.args.get('chat_id')
-    stats = analytics_service.get_chat_statistics(chat_id)
-    return jsonify(stats)
+@app.post("/document_delete", response_model=Dict[str, str])
+async def delete_document(filename: str = Body(...)):
+    if not filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
-@app.route('/analytics/documents', methods=['GET'])
-@swag_from({
-    "tags": ["Analytics"],
-    "parameters": [
-        {
-            "name": "chat_id",
-            "in": "query",
-            "type": "string",
-            "required": False
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Document analytics data",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "count": {"type": "integer"},
-                    "total_size": {"type": "integer"},
-                    "types": {"type": "object"}
-                }
-            }
-        }
-    }
-})
-def get_document_analytics():
-    chat_id = request.args.get('chat_id')
-    stats = analytics_service.get_document_statistics(chat_id)
-    return jsonify(stats)
+    filepath = os.path.join(UPLOADS_FOLDER, filename)
+    metadata_path = os.path.join(UPLOADS_FOLDER, f"{filename}.meta.json")
+    
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
 
-@app.route('/analytics/links', methods=['GET'])
-@swag_from({
-    "tags": ["Analytics"],
-    "parameters": [
-        {
-            "name": "chat_id",
-            "in": "query",
-            "type": "string",
-            "required": False
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Link analytics data",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "count": {"type": "integer"},
-                    "domains": {"type": "object"}
-                }
-            }
-        }
-    }
-})
-def get_link_analytics():
-    chat_id = request.args.get('chat_id')
-    stats = analytics_service.get_link_statistics(chat_id)
-    return jsonify(stats)
-
-@app.route('/analytics/usage', methods=['GET'])
-@swag_from({
-    "tags": ["Analytics"],
-    "responses": {
-        "200": {
-            "description": "Usage analytics data",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "daily_active": {"type": "integer"},
-                    "weekly_active": {"type": "integer"},
-                    "monthly_active": {"type": "integer"},
-                    "peak_hours": {
-                        "type": "array",
-                        "items": {"type": "integer"}
-                    }
-                }
-            }
-        }
-    }
-})
-def get_usage_analytics():
-    stats = analytics_service.get_usage_statistics()
-    return jsonify(stats)
-
-@app.route('/generate_image', methods=['POST'])
-@swag_from({
-    "tags": ["Image Generation"],
-    "parameters": [
-        {
-            "name": "prompt",
-            "in": "body",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string"},
-                    "negative_prompt": {"type": "string"},
-                    "num_inference_steps": {"type": "integer", "default": 50},
-                    "guidance_scale": {"type": "number", "default": 7.5},
-                    "width": {"type": "integer", "default": 512},
-                    "height": {"type": "integer", "default": 512},
-                    "seed": {"type": "integer", "default": None}
-                },
-                "required": ["prompt"]
-            }
-        }
-    ],
-    "responses": {
-        "200": {
-            "description": "Image generated successfully",
-            "schema": {
-                "properties": {
-                    "image_url": {"type": "string"},
-                    "metadata": {
-                        "type": "object",
-                        "properties": {
-                            "prompt": {"type": "string"},
-                            "negative_prompt": {"type": "string"},
-                            "num_inference_steps": {"type": "integer"},
-                            "guidance_scale": {"type": "number"},
-                            "width": {"type": "integer"},
-                            "height": {"type": "integer"},
-                            "seed": {"type": "integer"},
-                            "generation_time": {"type": "number"}
-                        }
-                    }
-                }
-            }
-        },
-        "400": {"description": "Invalid request parameters"},
-        "500": {"description": "Image generation failed"}
-    }
-})
-def generate_image():
     try:
-        data = request.get_json()
-        prompt = data.get('prompt')
+        # Remove from memory
+        if filename in chatbot.documents:
+            del chatbot.documents[filename]
         
-        if not prompt:
-            return jsonify({"error": "Prompt is required"}), 400
+        # Remove from disk
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        if os.path.exists(metadata_path):
+            os.remove(metadata_path)
+        
+        return {"response": "File deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+################################################## Memory Routes ##################################################
+@app.post("/store_memory", response_model=Dict[str, Any])
+async def store_memory(request: MemoryRequest) -> Dict[str, Any]:
+    """Store a memory in the memory system."""
+    try:
+        memory = await memory_manager.store_memory(
+            conversation_id=request.conversationId,
+            user_message=request.userMessage.text,
+            bot_message=request.botMessage.text,
+            documents=request.documents,
+            links=request.links
+        )
+        return {
+            "message": "Memory stored successfully",
+            "memory": memory
+        }
+    except aiohttp.ClientError as e:
+        logger.error(f"Error storing memory: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding service unavailable"
+        )
+    except Exception as e:
+        logger.error(f"Error storing memory: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to store memory: {str(e)}"
+        )
+
+@app.get("/memory_viewer", response_model=MemoryViewerResponse)
+async def get_memory_entries(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    conversation_id: Optional[str] = None,
+    type: Optional[str] = None
+) -> MemoryViewerResponse:
+    """Retrieve memory entries with pagination and filtering."""
+    try:
+        # Get all entries from ChromaDB
+        collection = memory_manager.collection
+        results = collection.get()
+        
+        # Filter entries
+        filtered_entries = []
+        for i in range(len(results['ids'])):
+            metadata = results['metadatas'][i]
+            if conversation_id and metadata['conversation_id'] != conversation_id:
+                continue
+            if type and metadata['type'] != type:
+                continue
+                
+            filtered_entries.append({
+                'id': results['ids'][i],
+                'conversation_id': metadata['conversation_id'],
+                'type': metadata['type'],
+                'timestamp': metadata['timestamp'],
+                'text': results['documents'][i][:200] + '...' if len(results['documents'][i]) > 200 else results['documents'][i]
+            })
+        
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_entries = filtered_entries[start_idx:end_idx]
+        
+        return MemoryViewerResponse(
+            entries=paginated_entries,
+            total=len(filtered_entries),
+            page=page,
+            page_size=page_size
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving memory entries: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve memory entries: {str(e)}"
+        )
+
+# Add a redirect from /memory to /memory_viewer
+@app.get("/memory", include_in_schema=False)
+async def redirect_to_memory_viewer():
+    return RedirectResponse(url="/memory_viewer")
+
+################################################## Link Routes ##################################################
+@app.get("/links", response_model=Dict[str, List[LinkResponse]])
+async def list_links():
+    """Get a list of all processed links."""
+    try:
+        links = []
+        for link_id, link_data in chatbot.links.items():
+            links.append(LinkResponse(
+                id=link_id,
+                url=link_data['url'],
+                title=link_data['title'],
+                description=link_data['description'],
+                content=link_data['content'],
+                timestamp=link_data['timestamp']
+            ))
+        return {"links": links}
+    except Exception as e:
+        logger.error(f"Error listing links: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/link_upload", response_model=Dict[str, Any])
+async def process_link(request: LinkRequest):
+    try:
+        logger.info(f"Processing link upload request for URL: {request.url}")
+        
+        # Validate URL
+        if not request.url or not isinstance(request.url, str):
+            raise HTTPException(status_code=400, detail="Invalid URL provided")
             
-        # Get optional parameters with defaults
-        negative_prompt = data.get('negative_prompt', "")
-        num_inference_steps = data.get('num_inference_steps', 50)
-        guidance_scale = data.get('guidance_scale', 7.5)
-        width = data.get('width', 512)
-        height = data.get('height', 512)
-        seed = data.get('seed')
+        # Extract and store link data
+        link_data = await chatbot.extract_data_from_web_page(request.url)
         
-        # Generate image using the ImageGenerator
+        # More comprehensive URL sanitization
+        sanitized_url = (
+            request.url
+            .replace('://', '_')
+            .replace('/', '_')
+            .replace(':', '_')
+            .replace('?', '_')
+            .replace('&', '_')
+            .replace('=', '_')
+            .replace('+', '_')
+            .replace('@', '_')
+            .replace('#', '_')
+            .replace('%', '_')
+            .replace('*', '_')
+            .replace('|', '_')
+            .replace('\\', '_')
+            .replace('"', '_')
+            .replace("'", '_')
+            .replace('<', '_')
+            .replace('>', '_')
+            .replace(' ', '_')
+        )
+        
+        # Ensure the sanitized URL is not empty
+        if not sanitized_url:
+            raise HTTPException(status_code=400, detail="URL could not be sanitized properly")
+            
+        # Create a unique identifier
+        timestamp = datetime.utcnow().timestamp()
+        link_id = f"{sanitized_url}_{timestamp}"
+        
+        # Create link directory
+        link_dir = os.path.join(LINKS_FOLDER, link_id)
+        try:
+            os.makedirs(link_dir, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to create directory {link_dir}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to create directory: {str(e)}")
+        
+        # Save metadata
+        metadata_path = os.path.join(link_dir, 'meta.json')
+        try:
+            with open(metadata_path, 'w') as f:
+                json.dump({
+                    'url': request.url,
+                    'title': link_data['title'],
+                    'description': link_data['description'],
+                    'image': link_data.get('image'),
+                    'timestamp': datetime.utcnow().isoformat()
+                }, f)
+        except Exception as e:
+            logger.error(f"Failed to save metadata: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save metadata: {str(e)}")
+        
+        # Save content
+        content_path = os.path.join(link_dir, 'content.txt')
+        try:
+            with open(content_path, 'w', encoding='utf-8') as f:
+                f.write(link_data.get('content', ''))
+        except Exception as e:
+            logger.error(f"Failed to save content: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save content: {str(e)}")
+        
+        # Store in memory
+        chatbot.links[link_id] = {
+            'url': request.url,
+            'title': link_data['title'],
+            'description': link_data['description'],
+            'image': link_data.get('image'),
+            'content': link_data.get('content', ''),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Track link share in analytics
+        try:
+            domain = request.url.split('/')[2]  # Extract domain from URL
+            analytics_service.track_link_share('default', domain, 'anonymous')
+        except Exception as e:
+            logger.warning(f"Failed to track link share: {str(e)}")
+        
+        return {
+            "message": "Link processed successfully",
+            "link": {
+                "id": link_id,
+                "title": link_data['title'],
+                "description": link_data['description'],
+                "image": link_data.get('image'),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing link: {str(e)}", exc_info=True)
+        analytics_service.track_error("link_upload_error")
+        raise HTTPException(status_code=500, detail=f"Failed to process link: {str(e)}")
+
+@app.post("/link_delete", response_model=Dict[str, str])
+async def delete_link(filename: str = Body(...)):
+    if not filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    link_dir = os.path.join(LINKS_FOLDER, filename)
+    if not os.path.exists(link_dir):
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    try:
+        # Remove from memory
+        if filename in chatbot.links:
+            del chatbot.links[filename]
+        
+        # Remove from disk
+        import shutil
+        shutil.rmtree(link_dir)
+        
+        return {"response": "Link deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+################################################## Image Routes ##################################################
+@app.post("/generate_image", response_model=ImageResponse)
+async def generate_image(request: ImageRequest):
+    try:
         image_generator = ImageGenerator()
-        result = asyncio.run(image_generator.generate_image(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            width=width,
-            height=height,
-            seed=seed
-        ))
+        result = await image_generator.generate_image(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            width=request.width,
+            height=request.height,
+            seed=request.seed
+        )
         
-        return jsonify({
+        return {
             "image_url": result["image_url"],
             "metadata": {
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "num_inference_steps": num_inference_steps,
-                "guidance_scale": guidance_scale,
-                "width": width,
-                "height": height,
-                "seed": seed,
+                "prompt": request.prompt,
+                "negative_prompt": request.negative_prompt,
+                "num_inference_steps": request.num_inference_steps,
+                "guidance_scale": request.guidance_scale,
+                "width": request.width,
+                "height": request.height,
+                "seed": request.seed,
                 "generation_time": result["generation_time"]
             }
-        })
-        
+        }
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
-        return jsonify({"error": "Image generation failed"}), 500
+        raise HTTPException(status_code=500, detail="Image generation failed")
 
+################################################## Analytics Routes ##################################################
+# Analytics endpoints
+@app.get("/analytics/chat")
+async def get_chat_analytics(chat_id: Optional[str] = None):
+    stats = analytics_service.get_chat_statistics(chat_id)
+    return stats
+
+@app.get("/analytics/documents")
+async def get_document_analytics(chat_id: Optional[str] = None):
+    stats = analytics_service.get_document_statistics(chat_id)
+    return stats
+
+@app.get("/analytics/links")
+async def get_link_analytics(chat_id: Optional[str] = None):
+    stats = analytics_service.get_link_statistics(chat_id)
+    return stats
+
+@app.get("/analytics/usage")
+async def get_usage_analytics():
+    stats = analytics_service.get_usage_statistics()
+    return stats
+
+################################################## Main ##################################################
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(asgi_app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

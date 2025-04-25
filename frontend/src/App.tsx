@@ -1,21 +1,24 @@
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid';
 import ChatContainer from "./components/ChatContainer";
 import Dashboard from "./components/Dashboard";
 import { FileList } from "./components/FileList";
 import { LinkList } from "./components/LinkList";
+import MemoryViewer from './components/MemoryViewer';
 import { SettingsMenu } from "./components/SettingsMenu";
 import Sidebar from "./components/Sidebar";
 import { ThemeProvider } from "./components/theme-provider";
-import { ThemeToggle } from "./components/theme-toggle";
 import { SettingsProvider } from "./contexts/settings-context";
 import { Chat, Message } from "./types";
-import { getDocuments, getLinks } from "./utils/api";
+import { deleteDocument, getDocuments, getLinks } from "./utils/api";
 
-export default function App() {
+type ActiveSection = 'dashboard' | 'chat' | 'files' | 'links' | 'memory' | 'settings';
+
+const App: React.FC = () => {
   const isMobile = useIsMobile();
-  const [activeSection, setActiveSection] = useState<'dashboard' | 'chat' | 'files' | 'links' | 'settings'>('chat');
+  const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Array<{
@@ -115,8 +118,13 @@ export default function App() {
     localStorage.setItem('links', JSON.stringify(links));
   }, [links]);
 
-  const handleDeleteDocument = (id: string) => {
-    setDocuments(documents.filter(doc => doc.id !== id));
+  const handleDeleteDocument = async (id: string) => {
+    try {
+      await deleteDocument(id);
+      setDocuments(documents.filter(doc => doc.id !== id));
+    } catch (error) {
+      console.error('Error deleting document:', error);
+    }
   };
 
   const handleDeleteLink = (id: string) => {
@@ -215,80 +223,88 @@ export default function App() {
   const currentChat = chats.find(chat => chat.id === currentChatId);
 
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <SettingsProvider>
-        <div className="min-h-screen bg-background">
-          <div className="flex h-screen">
-            <Sidebar
-              isMobile={isMobile}
-              activeSection={activeSection}
-              setActiveSection={setActiveSection}
-              documents={documents}
-              links={links}
-              onDeleteDocument={handleDeleteDocument}
-              onDeleteLink={handleDeleteLink}
-              onSelectDocument={handleSelectDocument}
-              onSelectLink={handleSelectLink}
-              chats={chats}
-              currentChatId={currentChatId}
-              onChatSelect={setCurrentChatId}
-              onCreateNewChat={createNewChat}
-              onDeleteChat={deleteChat}
-            />
-            <main className="flex-1 flex flex-col">
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b w-[969.33px] h-[77.33px]">
-                <h1 className="text-lg font-semibold">
-                  {activeSection === 'chat' 
-                    ? (currentChat?.title || 'New Chat') 
-                    : activeSection === 'dashboard'
-                    ? 'Dashboard'
-                    : activeSection === 'files'
-                    ? 'Files'
-                    : activeSection === 'links'
-                    ? 'Links'
-                    : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
-                </h1>
-                <ThemeToggle />
-              </div>
+    <Router>
+      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+        <SettingsProvider>
+          <div className="min-h-screen bg-background">
+            <div className="flex h-screen">
+              <Sidebar
+                isMobile={isMobile}
+                activeSection={activeSection}
+                setActiveSection={setActiveSection}
+                documents={documents}
+                links={links}
+                onDeleteDocument={handleDeleteDocument}
+                onDeleteLink={handleDeleteLink}
+                onSelectDocument={handleSelectDocument}
+                onSelectLink={handleSelectLink}
+                chats={chats}
+                currentChatId={currentChatId}
+                onChatSelect={setCurrentChatId}
+                onCreateNewChat={createNewChat}
+                onDeleteChat={deleteChat}
+              />
+              <main className="flex-1 flex flex-col">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b w-[969.33px] h-[77.33px]">
+                  <h1 className="text-lg font-semibold">
+                    {activeSection === 'chat' 
+                      ? (currentChat?.title || 'New Chat') 
+                      : activeSection === 'dashboard'
+                      ? 'Dashboard'
+                      : activeSection === 'files'
+                      ? 'Files'
+                      : activeSection === 'links'
+                      ? 'Links'
+                      : activeSection === 'memory'
+                      ? 'Memory Viewer'
+                      : activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
+                  </h1>
+                </div>
 
-              {/* Main Content */}
-              <div className="flex-1 overflow-hidden">
-                {activeSection === 'dashboard' && (
-                  <Dashboard documents={documents} links={links} />
-                )}
-                {activeSection === 'chat' && currentChat && (
-                  <ChatContainer
-                    chatTitle={currentChat.title}
-                    setChatTitle={(title) => updateChat(currentChatId!, { title })}
-                    selectedDocuments={selectedDocuments}
-                    selectedLinks={selectedLinks}
-                    messages={currentChat.messages}
-                    onSendMessage={handleSendMessage}
-                  />
-                )}
-                {activeSection === 'files' && (
-                  <FileList
-                    documents={documents}
-                    onDelete={handleDeleteDocument}
-                    onSelect={handleSelectDocument}
-                  />
-                )}
-                {activeSection === 'links' && (
-                  <LinkList
-                    links={links}
-                    onDelete={handleDeleteLink}
-                    onSelect={handleSelectLink}
-                  />
-                )}
-                {activeSection === 'settings' && (
-                  <SettingsMenu />
-                )}
-              </div>
-            </main>
+                {/* Main Content */}
+                <div className="flex-1 overflow-hidden">
+                  {activeSection === 'dashboard' && (
+                    <Dashboard documents={documents} links={links} />
+                  )}
+                  {activeSection === 'chat' && currentChat && (
+                    <ChatContainer
+                      chatTitle={currentChat.title}
+                      setChatTitle={(title) => updateChat(currentChatId!, { title })}
+                      selectedDocuments={selectedDocuments}
+                      selectedLinks={selectedLinks}
+                      messages={currentChat.messages}
+                      onSendMessage={handleSendMessage}
+                    />
+                  )}
+                  {activeSection === 'files' && (
+                    <FileList
+                      documents={documents}
+                      onDelete={handleDeleteDocument}
+                      onSelect={handleSelectDocument}
+                    />
+                  )}
+                  {activeSection === 'links' && (
+                    <LinkList
+                      links={links}
+                      onDelete={handleDeleteLink}
+                      onSelect={handleSelectLink}
+                    />
+                  )}
+                  {activeSection === 'memory' && (
+                    <MemoryViewer />
+                  )}
+                  {activeSection === 'settings' && (
+                    <SettingsMenu />
+                  )}
+                </div>
+              </main>
+            </div>
           </div>
-        </div>
-      </SettingsProvider>
-    </ThemeProvider>
+        </SettingsProvider>
+      </ThemeProvider>
+    </Router>
   );
-}
+};
+
+export default App;

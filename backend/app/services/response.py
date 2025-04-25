@@ -1,7 +1,7 @@
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from llm_integration import LLMIntegration, ModelType
+from .llm_integration import LLMIntegration, ModelType
 
 logger = logging.getLogger(__name__)
 

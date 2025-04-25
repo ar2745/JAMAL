@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { Chat, Message } from "@/types";
 import {
     Activity,
+    Brain,
     Cpu,
     FileText,
     Link as LinkIcon,
@@ -38,10 +39,12 @@ function SidebarItem({ icon, label, active, onClick }: SidebarItemProps) {
   );
 }
 
+type ActiveSection = 'dashboard' | 'chat' | 'files' | 'links' | 'memory' | 'settings';
+
 interface SidebarProps {
   isMobile: boolean;
-  activeSection: 'dashboard' | 'chat' | 'files' | 'links' | 'settings';
-  setActiveSection: (section: 'dashboard' | 'chat' | 'files' | 'links' | 'settings') => void;
+  activeSection: ActiveSection;
+  setActiveSection: (section: ActiveSection) => void;
   documents: Array<{
     id: string;
     name: string;
@@ -183,6 +186,17 @@ export default function Sidebar({
         >
           <LinkIcon className="h-4 w-4" />
           <span>Links</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            activeSection === 'memory' && "bg-accent/10"
+          )}
+          onClick={() => setActiveSection('memory')}
+        >
+          <Brain className="h-4 w-4" />
+          <span>Memory</span>
         </Button>
         <Button
           variant="ghost"
