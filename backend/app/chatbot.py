@@ -425,9 +425,7 @@ async def list_links():
     
 @app.post("/link_upload", response_model=Dict[str, Any])
 async def process_link(request: LinkRequest):
-    try:
-        logger.info(f"Processing link upload request for URL: {request.url}")
-        
+    try:        
         # Validate URL
         if not request.url or not isinstance(request.url, str):
             raise HTTPException(status_code=400, detail="Invalid URL provided")
@@ -466,40 +464,8 @@ async def process_link(request: LinkRequest):
         timestamp = datetime.utcnow().timestamp()
         link_id = f"{sanitized_url}_{timestamp}"
         
-        # Create link directory
-        link_dir = os.path.join(LINKS_FOLDER, link_id)
-        try:
-            os.makedirs(link_dir, exist_ok=True)
-        except Exception as e:
-            logger.error(f"Failed to create directory {link_dir}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to create directory: {str(e)}")
-        
-        # Save metadata
-        metadata_path = os.path.join(link_dir, 'meta.json')
-        try:
-            with open(metadata_path, 'w') as f:
-                json.dump({
-                    'url': request.url,
-                    'title': link_data['title'],
-                    'description': link_data['description'],
-                    'image': link_data.get('image'),
-                    'timestamp': datetime.utcnow().isoformat()
-                }, f)
-        except Exception as e:
-            logger.error(f"Failed to save metadata: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save metadata: {str(e)}")
-        
-        # Save content
-        content_path = os.path.join(link_dir, 'content.txt')
-        try:
-            with open(content_path, 'w', encoding='utf-8') as f:
-                f.write(link_data.get('content', ''))
-        except Exception as e:
-            logger.error(f"Failed to save content: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save content: {str(e)}")
-        
-        # Store in memory
-        chatbot.links[link_id] = {
+        # Prepare link data
+        link_data = {
             'url': request.url,
             'title': link_data['title'],
             'description': link_data['description'],
@@ -507,6 +473,12 @@ async def process_link(request: LinkRequest):
             'content': link_data.get('content', ''),
             'timestamp': datetime.utcnow().isoformat()
         }
+        
+        # Store link using the Chatbot class method
+        chatbot.persist_link(link_id, link_data)
+        
+        # Store in memory
+        chatbot.links[link_id] = link_data
         
         # Track link share in analytics
         try:
@@ -522,7 +494,7 @@ async def process_link(request: LinkRequest):
                 "title": link_data['title'],
                 "description": link_data['description'],
                 "image": link_data.get('image'),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": link_data['timestamp']
             }
         }
     except HTTPException:
@@ -533,25 +505,37 @@ async def process_link(request: LinkRequest):
         raise HTTPException(status_code=500, detail=f"Failed to process link: {str(e)}")
 
 @app.post("/link_delete", response_model=Dict[str, str])
-async def delete_link(filename: str = Body(...)):
-    if not filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
-
-    link_dir = os.path.join(LINKS_FOLDER, filename)
-    if not os.path.exists(link_dir):
-        raise HTTPException(status_code=404, detail="Link not found")
-
+async def delete_link(request: dict = Body(...)):
     try:
-        # Remove from memory
+        filename = request.get('filename')
+        if not filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+            
+        # Get the full path to the link directory
+        link_dir = os.path.join(os.getcwd(), LINKS_FOLDER, filename)
+        
+        # Check if the directory exists
+        if not os.path.exists(link_dir):
+            raise HTTPException(status_code=404, detail="Link not found")
+            
+        # Remove from memory first
         if filename in chatbot.links:
             del chatbot.links[filename]
         
         # Remove from disk
         import shutil
-        shutil.rmtree(link_dir)
+        try:
+            shutil.rmtree(link_dir)
+            logger.info(f"Successfully deleted link directory: {link_dir}")
+        except Exception as e:
+            logger.error(f"Error deleting link directory {link_dir}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete link directory: {str(e)}")
         
         return {"response": "Link deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error in delete_link: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 ################################################## Image Routes ##################################################

@@ -12,7 +12,7 @@ import Sidebar from "./components/Sidebar";
 import { ThemeProvider } from "./components/theme-provider";
 import { SettingsProvider } from "./contexts/settings-context";
 import { Chat, Message } from "./types";
-import { deleteDocument, getDocuments, getLinks } from "./utils/api";
+import { deleteDocument, deleteLink, getDocuments, getLinks } from "./utils/api";
 
 type ActiveSection = 'dashboard' | 'chat' | 'files' | 'links' | 'memory' | 'settings';
 
@@ -127,8 +127,13 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteLink = (id: string) => {
-    setLinks(links.filter(link => link.id !== id));
+  const handleDeleteLink = async (id: string) => {
+    try {
+      await deleteLink(id);
+      setLinks(links.filter(link => link.id !== id));
+    } catch (error) {
+      console.error('Error deleting link:', error);
+    }
   };
 
   const handleSelectDocument = (id: string, selected: boolean) => {

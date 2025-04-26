@@ -84,7 +84,7 @@ export default function Dashboard({ documents, links }: DashboardProps) {
 
     fetchAnalyticsData();
     // Refresh data every 30 seconds
-    const interval = setInterval(fetchAnalyticsData, 30000);
+    const interval = setInterval(fetchAnalyticsData, 120000);
     return () => clearInterval(interval);
   }, []);
 

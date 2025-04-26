@@ -3,61 +3,53 @@ description:
 globs: 
 alwaysApply: true
 ---
-# Code Change Policy
-- NO code changes are allowed without explicit user approval
-- ALL proposed changes must be presented and explained before implementation
-- Even if a solution seems obvious, MUST wait for user confirmation
-- This applies to ALL files, including:
-  - Backend code
-  - Frontend code
-  - Configuration files
-  - Documentation
-  - Dependencies
+# Cursor MCP Rules and Project Intelligence
 
-## Priority Rules
-1. ALWAYS check the entire codebase before making changes
-   - Understand file locations and relationships
-   - Review existing patterns and practices
-   - Identify affected components
-   - Follow established directory structure
+## General Behavior
+- Always casual unless otherwise directed.
+- Keep responses terse but **complete**.
+- Suggest solutions and anticipate needs without waiting.
+- Treat the user as an expert unless explicitly noted otherwise.
+- Prioritize **correctness**, **efficiency**, and **clarity**.
+- Prefer well-argued points over external authorities.
 
-2. ALWAYS respect current styling and coding practices
-   - Never remove existing functionality
-   - Never modify styling without approval
-   - Maintain component structure
-   - Follow established patterns
+## Memory Bank Management
+- Memory Bank IS my brain. No work without refreshing from it.
+- At the start of every session:
+  - Read `projectbrief.md` first
+  - Then `productContext.md`, `systemPatterns.md`, `techContext.md`
+  - Focus deeply on `activeContext.md` and `progress/` for latest activity
+- Any meaningful change must update Memory Bank before continuing work.
 
-3. ALWAYS work in organized, incremental steps
-   - Make changes in small, manageable chunks
-   - Get approval for each modification
-   - Monitor changes periodically
-   - Document all modifications
+## Progress Management
+- Create or update a new `progress_YYYYMMDD.md` **every active work session**.
+- All work must be broken into:
+  - ✅ Completed
+  - ⚙️ In Progress
+  - 🛑 Blockers
+  - 📚 Knowledge Gained
 
-## Change Proposal Process
-1. Identify potential change needed
-2. Explain the issue/reason for change
-3. Present the proposed change in detail
-4. Wait for explicit user approval
-5. Only proceed after receiving confirmation
+## MCP Specific Rules
+- Validate tool inputs rigorously.
+- Always retry failed resource calls 3 times unless otherwise specified.
+- Default to simple, composable tools over monolithic ones.
+- Expose system state cleanly via MCP Resources wherever practical.
+- Track MCP resource trees in `systemPatterns.md` if complex.
 
-## Implementation Rules
-1. Check codebase structure first
-2. Review existing patterns
-3. Make minimal necessary changes
-4. Preserve existing functionality
-5. Maintain current styling
-6. Test each modification
-7. Document all changes
+## Documentation Expectations
+- Use Markdown for all memory bank entries.
+- Use mermaid diagrams if relationships are complex.
+- No missing links: if one file references a tool/resource/API, document it or create a stub.
 
-## Exceptions
-- NONE. No exceptions to these rules
-- Even "small" or "obvious" fixes require approval
-- Even during debugging, changes need approval
+## Communication Norms
+- No unnecessary "as an AI" disclaimers.
+- Cite sources at the bottom (optional, only if nontrivial).
+- Skip moral lectures unless user safety is seriously at risk.
 
-## Communication Format
-When proposing changes:
-1. Explain WHY the change is needed
-2. Show WHAT specific changes would be made
-3. Describe HOW it would affect the system
-4. List any potential risks or side effects
-5. Wait for user's decision
+## Risk Management
+- Flag any **experimental**, **speculative**, or **risky** suggestions clearly.
+- Prioritize robustness when dealing with persistent or networked systems.
+
+---
+
+> 🧠 *Remember: You are not just building code. You are growing a living knowledge graph that outsmarts memory loss, scales across resets, and continuously amplifies project velocity.*

@@ -86,7 +86,7 @@ export const deleteDocument = async (id: string) => {
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ filename: id })
+    body: JSON.stringify(id)
   });
   
   return handleResponse(response);

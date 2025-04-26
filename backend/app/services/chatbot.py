@@ -398,9 +398,6 @@ class Chatbot:
             # Extract metadata
             metadata = self.extract_metadata(url)
             
-            # Create a unique ID for the link
-            link_id = secure_filename(f"{url}_{datetime.utcnow().timestamp()}")
-            
             # Create link data structure
             link_data = {
                 'url': url,
@@ -410,12 +407,6 @@ class Chatbot:
                 'content': metadata.get('content'),
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
-            # Persist link data
-            self.persist_link(link_id, link_data)
-            
-            # Store in memory
-            self.links[link_id] = link_data
             
             return link_data
         except Exception as e:
