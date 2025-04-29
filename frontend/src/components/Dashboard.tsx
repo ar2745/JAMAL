@@ -33,10 +33,20 @@ interface AnalyticsData {
     total_documents: number;
     total_size: number;
     types: Record<string, number>;
+    recent_uploads?: Array<{
+      id: string;
+      name: string;
+      timestamp: string;
+    }>;
   };
   linkStats: {
     total_links: number;
     domains: Record<string, number>;
+    share_history?: Array<{
+      id: string;
+      title: string;
+      url: string;
+    }>;
   };
   usageStats: {
     daily_active_users: number;
@@ -46,47 +56,109 @@ interface AnalyticsData {
     peak_hours: number[];
     average_response_time: number;
   };
+  enhancedStats?: {
+    chat_metrics: {
+      avg_response_time: number;
+      completion_rates: {
+        completed: number;
+        abandoned: number;
+      };
+      top_topics: Record<string, number>;
+    };
+    document_metrics: {
+      processing_success_rate: number;
+      popular_types: Record<string, number>;
+      most_accessed: Record<string, number>;
+    };
+    user_metrics: {
+      retention_rates: {
+        daily: number;
+        weekly: number;
+        monthly: number;
+      };
+      avg_session_duration: number;
+      popular_features: Record<string, number>;
+    };
+  };
 }
 
 export default function Dashboard({ documents, links }: DashboardProps) {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
 
   useEffect(() => {
-    const fetchAnalyticsData = async () => {
-      try {
-        const [chatResponse, documentResponse, linkResponse, usageResponse] = await Promise.all([
-          fetch('http://localhost:5000/analytics/chat'),
-          fetch('http://localhost:5000/analytics/documents'),
-          fetch('http://localhost:5000/analytics/links'),
-          fetch('http://localhost:5000/analytics/usage')
-        ]);
-
-        const [chatStats, documentStats, linkStats, usageStats] = await Promise.all([
-          chatResponse.json(),
-          documentResponse.json(),
-          linkResponse.json(),
-          usageResponse.json()
-        ]);
-
-        setAnalyticsData({
-          chatStats,
-          documentStats,
-          linkStats,
-          usageStats
-        });
-      } catch (error) {
-        console.error('Error fetching analytics data:', error);
-      } finally {
-        setLoading(false);
-      }
+    // Initialize WebSocket connection
+    const ws = new WebSocket('ws://localhost:5000/analytics');
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setAnalyticsData(prevData => ({
+        ...prevData,
+        ...data
+      }));
+      setLoading(false);
     };
 
-    fetchAnalyticsData();
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchAnalyticsData, 120000);
-    return () => clearInterval(interval);
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      // Fallback to polling if WebSocket fails
+      initPolling();
+    };
+
+    setSocket(ws);
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
   }, []);
+
+  const fetchAnalyticsData = async () => {
+    try {
+      const [chatResponse, documentResponse, linkResponse, usageResponse, enhancedResponse] = await Promise.all([
+        fetch('http://localhost:5000/analytics/chat'),
+        fetch('http://localhost:5000/analytics/documents'),
+        fetch('http://localhost:5000/analytics/links'),
+        fetch('http://localhost:5000/analytics/usage'),
+        fetch('http://localhost:5000/analytics/enhanced')
+      ]);
+
+      const [chatStats, documentStats, linkStats, usageStats, enhancedStats] = await Promise.all([
+        chatResponse.json(),
+        documentResponse.json(),
+        linkResponse.json(),
+        usageResponse.json(),
+        enhancedResponse.json()
+      ]);
+
+      setAnalyticsData({
+        chatStats,
+        documentStats,
+        linkStats,
+        usageStats,
+        enhancedStats
+      });
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+    }
+  };
+
+  const initPolling = () => {
+    fetchAnalyticsData();
+    // Refresh data every 15 seconds as fallback
+    const interval = setInterval(fetchAnalyticsData, 15000);
+    return () => clearInterval(interval);
+  };
+
+  useEffect(() => {
+    // Only start polling if WebSocket is not connected
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return initPolling();
+    }
+  }, [socket]);
 
   if (loading || !analyticsData) {
     return <div className="p-6">Loading analytics data...</div>;
@@ -96,12 +168,12 @@ export default function Dashboard({ documents, links }: DashboardProps) {
   const usageData = Object.entries(analyticsData.usageStats.peak_hours).map(([hour, count]) => ({
     name: `${hour}:00`,
     chats: count,
-    documents: analyticsData.documentStats.types[hour] || 0,
+    uploads: analyticsData.documentStats.types[hour] || 0,
     links: analyticsData.linkStats.domains[hour] || 0
   }));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 overflow-auto h-[calc(100vh-4rem)]">
       {/* Overview Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -116,7 +188,7 @@ export default function Dashboard({ documents, links }: DashboardProps) {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Documents</CardTitle>
+            <CardTitle className="text-sm font-medium">Uploads</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -149,13 +221,13 @@ export default function Dashboard({ documents, links }: DashboardProps) {
       {/* Usage Statistics */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Hourly Activity</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Hourly Activity</CardTitle>
           </CardHeader>
           <CardContent>
             <ChartContainer config={{
               chats: { label: "Chats", color: "#3b82f6" },
-              documents: { label: "Documents", color: "#10b981" },
+              uploads: { label: "Uploads", color: "#10b981" },
               links: { label: "Links", color: "#8b5cf6" }
             }}>
               <BarChart data={usageData}>
@@ -164,7 +236,7 @@ export default function Dashboard({ documents, links }: DashboardProps) {
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ChartLegend />
                 <Bar dataKey="chats" fill="#3b82f6" />
-                <Bar dataKey="documents" fill="#10b981" />
+                <Bar dataKey="uploads" fill="#10b981" />
                 <Bar dataKey="links" fill="#8b5cf6" />
               </BarChart>
             </ChartContainer>
@@ -172,29 +244,29 @@ export default function Dashboard({ documents, links }: DashboardProps) {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>System Status</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">System Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Backend API</p>
-                  <p className="text-xs text-muted-foreground">Response time: {analyticsData.usageStats.average_response_time.toFixed(2)}ms</p>
+                  <p className="text-xs text-muted-foreground">Backend API</p>
+                  <p className="text-xs">Response time: {analyticsData.usageStats.average_response_time.toFixed(2)}ms</p>
                 </div>
                 <div className={`h-2 w-2 rounded-full ${analyticsData.usageStats.average_response_time < 200 ? 'bg-green-500' : 'bg-yellow-500'}`} />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Active Users</p>
-                  <p className="text-xs text-muted-foreground">{analyticsData.usageStats.weekly_active_users} weekly active</p>
+                  <p className="text-xs text-muted-foreground">Active Users</p>
+                  <p className="text-xs">{analyticsData.usageStats.weekly_active_users} weekly active</p>
                 </div>
                 <div className="h-2 w-2 rounded-full bg-green-500" />
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Storage</p>
-                  <p className="text-xs text-muted-foreground">{(analyticsData.documentStats.total_size / 1024 / 1024).toFixed(2)} MB used</p>
+                  <p className="text-xs text-muted-foreground">Storage</p>
+                  <p className="text-xs">{(analyticsData.documentStats.total_size / 1024 / 1024).toFixed(2)} MB used</p>
                 </div>
                 <div className="h-2 w-2 rounded-full bg-green-500" />
               </div>
@@ -202,43 +274,6 @@ export default function Dashboard({ documents, links }: DashboardProps) {
           </CardContent>
         </Card>
       </div>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {documents.slice(0, 3).map((doc) => (
-              <div key={doc.id} className="flex items-center gap-4">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{doc.name}</p>
-                  <p className="text-xs text-muted-foreground">{doc.type}</p>
-                </div>
-              </div>
-            ))}
-            {links.slice(0, 3).map((link) => (
-              <div key={link.id} className="flex items-center gap-4">
-                <LinkIcon className="h-4 w-4 text-muted-foreground" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{link.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {link.url ? (() => {
-                      try {
-                        return new URL(link.url).hostname;
-                      } catch (e) {
-                        return link.url;
-                      }
-                    })() : 'No URL'}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 } 

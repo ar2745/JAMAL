@@ -9,7 +9,7 @@ import aiohttp
 
 
 class ModelType(Enum):
-    SIMPLE = "llama3.2:1B"
+    SIMPLE = "gemma3:1b"
     REASONED = "deepseek-r1:1.5b"
 
 @dataclass

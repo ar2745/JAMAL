@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Message } from "@/types";
-import { Globe, Lightbulb, Link, Upload } from "lucide-react";
+import { Globe, Lightbulb, Link, Search, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import LinkInputDialog from "./LinkInputDialog";
 
@@ -27,15 +28,20 @@ export default function UserInput({
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [isWebSearchMode, setIsWebSearchMode] = useState(false);
   const [isReasoningMode, setIsReasoningMode] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-resize textarea
+  // Auto-resize input - only grow if content is larger than container
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(scrollHeight, 200)}px`;
+    if (inputRef.current) {
+      const containerWidth = inputRef.current.parentElement?.clientWidth || 0;
+      inputRef.current.style.width = "100%";
+      const contentWidth = inputRef.current.scrollWidth;
+      
+      // Only set a larger width if the content is wider than the container
+      if (contentWidth > containerWidth) {
+        inputRef.current.style.width = `${contentWidth}px`;
+      }
     }
   }, [message]);
 
@@ -171,7 +177,7 @@ export default function UserInput({
   };
 
   return (
-    <div className="flex items-center gap-2 p-4 border-t">
+    <div className={`flex items-center gap-2 p-4 border-t ${isWebSearchMode ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}>
       <input
         type="file"
         ref={fileInputRef}
@@ -194,19 +200,27 @@ export default function UserInput({
       >
         <Link className="h-4 w-4" />
       </Button>
-      <Button
-        variant={isWebSearchMode ? "default" : "outline"}
-        size="icon"
-        onClick={() => setIsWebSearchMode(!isWebSearchMode)}
-        disabled={isLoading}
-        className="relative"
-        title={isWebSearchMode ? "Web Search Mode Active" : "Enable Web Search"}
-      >
-        <Globe className="h-4 w-4" />
-        {isWebSearchMode && (
-          <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" />
-        )}
-      </Button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={isWebSearchMode ? "default" : "outline"}
+              size="icon"
+              onClick={() => setIsWebSearchMode(!isWebSearchMode)}
+              disabled={isLoading}
+              className={`relative ${isWebSearchMode ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}`}
+            >
+              <Globe className="h-4 w-4" />
+              {isWebSearchMode && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isWebSearchMode ? "Web Search Mode Active - Click to disable" : "Enable Web Search Mode"}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <Button
         variant={isReasoningMode ? "default" : "outline"}
         size="icon"
@@ -220,22 +234,35 @@ export default function UserInput({
           <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full" />
         )}
       </Button>
-      <Input
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder={isWebSearchMode ? "Search the web..." : "Type a message..."}
-        className="flex-1"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSendMessage();
-          }
-        }}
+      
+      <div className={`flex-1 relative ${isWebSearchMode ? 'ring-2 ring-blue-500 rounded-md' : ''}`}>
+        <Input
+          ref={inputRef}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder={isWebSearchMode ? "Search the web..." : "Type a message..."}
+          className={`w-full ${isWebSearchMode ? 'pl-10' : ''}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendMessage();
+            }
+          }}
+          disabled={isLoading}
+        />
+        {isWebSearchMode && (
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-500" />
+        )}
+      </div>
+      
+      <Button 
+        onClick={handleSendMessage} 
         disabled={isLoading}
-      />
-      <Button onClick={handleSendMessage} disabled={isLoading}>
+        className={isWebSearchMode ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}
+      >
         {isWebSearchMode ? "Search" : "Send"}
       </Button>
+      
       <LinkInputDialog
         isOpen={isLinkDialogOpen}
         onClose={() => setIsLinkDialogOpen(false)}

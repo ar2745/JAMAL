@@ -4,10 +4,14 @@ import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
+from json.decoder import JSONDecodeError
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+import uvicorn
+from event_loop import configure_event_loop, get_event_loop
+from fastapi import (Body, FastAPI, File, HTTPException, Query, UploadFile,
+                     WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -26,6 +30,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Configure event loop
+configure_event_loop()
 
 # Configuration
 CHATS_FOLDER = 'chats'
@@ -173,6 +180,7 @@ class MemoryResponse(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    searchResults: Optional[List[Dict[str, str]]] = None
 
 class ImageResponse(BaseModel):
     image_url: str
@@ -236,7 +244,10 @@ async def chat(request: ChatRequest):
         response_time = (end_time - start_time).total_seconds()
         analytics_service.track_response_time(response_time)
         
-        return {"response": response}
+        return ChatResponse(
+            response=response,
+            searchResults=None  # Since we removed web search functionality
+        )
     except Exception as e:
         logger.error(f"Error in chat: {e}")
         analytics_service.track_error("chat_error")
@@ -480,10 +491,16 @@ async def process_link(request: LinkRequest):
         # Store in memory
         chatbot.links[link_id] = link_data
         
-        # Track link share in analytics
+        # Track link share in analytics with full information
         try:
             domain = request.url.split('/')[2]  # Extract domain from URL
-            analytics_service.track_link_share('default', domain, 'anonymous')
+            analytics_service.track_link_share(
+                'default',
+                domain,
+                'anonymous',
+                title=link_data['title'],
+                url=request.url
+            )
         except Exception as e:
             logger.warning(f"Failed to track link share: {str(e)}")
         
@@ -571,28 +588,157 @@ async def generate_image(request: ImageRequest):
         raise HTTPException(status_code=500, detail="Image generation failed")
 
 ################################################## Analytics Routes ##################################################
-# Analytics endpoints
+@app.websocket("/analytics")
+async def analytics_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time analytics updates."""
+    try:
+        await websocket.accept()
+        logger.info("New analytics WebSocket connection accepted")
+        
+        # Register with analytics service
+        await analytics_service.register_websocket(websocket)
+        
+        try:
+            # Send initial data
+            await analytics_service._send_analytics_update(websocket)
+            logger.debug("Initial analytics data sent successfully")
+            
+            # Keep connection alive and handle messages
+            while True:
+                try:
+                    message = await websocket.receive_json()
+                    logger.debug(f"Received message: {message}")
+                    
+                    # Handle different message types
+                    msg_type = message.get("type", "")
+                    
+                    if msg_type == "ping":
+                        await websocket.send_json({"type": "pong"})
+                    
+                    elif msg_type == "subscribe":
+                        topics = message.get("topics", [])
+                        if isinstance(topics, list):
+                            await analytics_service.subscribe_to_topics(websocket, topics)
+                            await websocket.send_json({
+                                "type": "subscribed",
+                                "topics": topics
+                            })
+                            logger.info(f"Client subscribed to topics: {topics}")
+                        else:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Topics must be a list"
+                            })
+                    
+                    elif msg_type == "unsubscribe":
+                        topics = message.get("topics", [])
+                        if isinstance(topics, list):
+                            await analytics_service.unsubscribe_from_topics(websocket, topics)
+                            await websocket.send_json({
+                                "type": "unsubscribed",
+                                "topics": topics
+                            })
+                            logger.info(f"Client unsubscribed from topics: {topics}")
+                        else:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Topics must be a list"
+                            })
+                    
+                    elif msg_type == "refresh":
+                        await analytics_service._send_analytics_update(websocket)
+                        logger.debug("Analytics data refreshed")
+                    
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Unknown message type: {msg_type}"
+                        })
+                    
+                except JSONDecodeError as e:
+                    logger.error(f"Invalid JSON message received: {str(e)}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid JSON message"
+                    })
+                except Exception as e:
+                    logger.error(f"Error handling message: {str(e)}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Internal server error"
+                    })
+                    
+        except WebSocketDisconnect:
+            logger.info("WebSocket client disconnected gracefully")
+        except Exception as e:
+            logger.error(f"WebSocket connection error: {str(e)}")
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Connection error occurred"
+                })
+            except:
+                pass
+    except Exception as e:
+        logger.error(f"Failed to establish WebSocket connection: {str(e)}")
+    finally:
+        # Ensure cleanup happens even if connection wasn't fully established
+        try:
+            await analytics_service.unregister_websocket(websocket)
+            logger.info("WebSocket client unregistered")
+        except Exception as e:
+            logger.error(f"Error during WebSocket cleanup: {str(e)}")
+
 @app.get("/analytics/chat")
 async def get_chat_analytics(chat_id: Optional[str] = None):
+    """Get chat analytics data."""
     stats = analytics_service.get_chat_statistics(chat_id)
     return stats
 
 @app.get("/analytics/documents")
 async def get_document_analytics(chat_id: Optional[str] = None):
+    """Get document analytics data."""
     stats = analytics_service.get_document_statistics(chat_id)
     return stats
 
 @app.get("/analytics/links")
 async def get_link_analytics(chat_id: Optional[str] = None):
+    """Get link analytics data."""
     stats = analytics_service.get_link_statistics(chat_id)
     return stats
 
 @app.get("/analytics/usage")
 async def get_usage_analytics():
+    """Get usage analytics data."""
     stats = analytics_service.get_usage_statistics()
+    return stats
+
+@app.get("/analytics/enhanced")
+async def get_enhanced_analytics():
+    """Get enhanced analytics including detailed metrics for chats, documents, and users."""
+    stats = analytics_service.get_enhanced_statistics()
     return stats
 
 ################################################## Main ##################################################
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Get the event loop
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # Run the application
+    uvicorn.run(
+        "chatbot:app",
+        host="0.0.0.0",
+        port=5000,
+        loop="asyncio",
+        reload=True
+    )
