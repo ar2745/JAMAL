@@ -15,6 +15,7 @@ from .analytics import AnalyticsService
 from .llm_integration import LLMIntegration, ModelType
 from .memory import MemoryManager
 from .response import ResponseGenerator
+from .web_search import WebSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class Chatbot:
         self.memory_manager = MemoryManager(api_url)
         self.response_generator = ResponseGenerator(self.llm_integration)
         self.analytics_service = AnalyticsService()
+        self.web_search_service = WebSearchService()
         
         # Setup directories
         self.chats_folder = chats_folder
@@ -104,6 +106,7 @@ class Chatbot:
         document_name: Optional[str] = None,
         link_id: Optional[str] = None,
         is_reasoning_mode: bool = False,
+        is_web_search: bool = False,
         user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Process a user message and generate a response.
@@ -114,6 +117,7 @@ class Chatbot:
             document_name: Name of the document to reference
             link_id: ID of the link to reference
             is_reasoning_mode: Whether to use reasoning mode
+            is_web_search: Whether to perform a web search
             user_id: ID of the user
             
         Returns:
@@ -137,42 +141,60 @@ class Chatbot:
                 )
             
             # Generate response based on context
-            if document_name and document_name in self.documents:
-                response = await self.response_generator.generate_document_response(
+            response_data = {}
+            if is_web_search:
+                # Perform web search and generate response
+                search_results = await self.web_search_service.search_web(user_input)
+                response_data = await self.response_generator.generate_web_search_response(
+                    user_input,
+                    search_results,
+                    is_reasoning_mode
+                )
+            elif document_name and document_name in self.documents:
+                response_data = await self.response_generator.generate_document_response(
                     user_input,
                     self.documents[document_name],
                     is_reasoning_mode
                 )
             elif link_id and link_id in self.links:
-                response = await self.response_generator.generate_link_response(
+                response_data = await self.response_generator.generate_link_response(
                     user_input,
                     self.links[link_id]['content'],
                     is_reasoning_mode
                 )
             elif memories:
-                response = await self.response_generator.generate_contextual_response(
+                response_data = await self.response_generator.generate_contextual_response(
                     user_input,
                     memories,
                     is_reasoning_mode
                 )
             else:
                 if is_reasoning_mode:
-                    response = await self.response_generator.generate_reasoned_response(user_input)
+                    response_data = await self.response_generator.generate_reasoned_response(user_input)
                 else:
-                    response = await self.response_generator.generate_simple_response(user_input)
+                    response_data = await self.response_generator.generate_simple_response(user_input)
+            
+            # Ensure response_data is a string
+            if isinstance(response_data, dict):
+                response_text = response_data.get('text', '')
+            else:
+                response_text = str(response_data)
+            
+            # Track response time
+            self.analytics_service.track_response_time(0)  # We'll need to track this differently
             
             # Store the conversation in memory
             if conversation_id:
                 await self.memory_manager.store_memory(
                     conversation_id,
                     user_input,
-                    response,
+                    response_text,
                     [document_name] if document_name else None,
                     [link_id] if link_id else None
                 )
             
             return {
-                'response': response,
+                'response': response_text,
                 'conversation_id': conversation_id,
                 'document_name': document_name,
                 'link_id': link_id,

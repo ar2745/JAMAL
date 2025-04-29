@@ -214,30 +214,16 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Input too long")
     
     try:
-        # Track user activity
-        analytics_service.track_user_activity(request.user_id or 'anonymous')
-        
-        # Track chat activity
-        chat_id = request.conversation_id or 'default'
-        analytics_service.track_chat_activity(chat_id, user_id=request.user_id)
-        
-        # Handle different chat types
-        if request.document and request.document in chatbot.documents:
-            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
-        elif request.link and request.link in chatbot.links:
-            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
-        else:
-            response = await chatbot.get_reasoned_response(request.message) if request.metadata.get('isReasoningMode') else await chatbot.get_simple_response(request.message)
-        
-        # Store in memory if conversation_id exists
-        if request.conversation_id:
-            await memory_manager.store_memory(
-                request.conversation_id,
-                request.message,
-                response,
-                [request.document] if request.document else None,
-                [request.link] if request.link else None
-            )
+        # Process the message using the Chatbot's process_message method
+        result = await chatbot.process_message(
+            user_input=request.message,
+            conversation_id=request.conversation_id,
+            document_name=request.document,
+            link_id=request.link,
+            is_reasoning_mode=request.metadata.get('isReasoningMode', False),
+            is_web_search=request.metadata.get('isWebSearch', False),
+            user_id=request.user_id
+        )
         
         # Track response time
         end_time = datetime.now()
@@ -245,8 +231,8 @@ async def chat(request: ChatRequest):
         analytics_service.track_response_time(response_time)
         
         return ChatResponse(
-            response=response,
-            searchResults=None  # Since we removed web search functionality
+            response=result['response'],
+            searchResults=result.get('searchResults')
         )
     except Exception as e:
         logger.error(f"Error in chat: {e}")

@@ -165,6 +165,50 @@ class ResponseGenerator:
             self.logger.error(f"Error generating contextual response: {e}")
             raise
 
+    async def generate_web_search_response(
+        self,
+        input_text: str,
+        search_results: List[Dict[str, Any]],
+        conversation_id: Optional[str] = None,
+        stream: bool = False,
+        is_reasoning_mode: bool = False
+    ) -> str | AsyncGenerator[str, None]:
+        """Generate a response based on web search results."""
+        try:
+            if not search_results:
+                return "I couldn't find any relevant search results for your query. Please try rephrasing your question or try a different search term."
+            
+            # Format search results into context
+            search_context = "\n\n".join([
+                f"Search Result {i+1}:\nTitle: {result['title']}\nURL: {result['link']}\nSnippet: {result['snippet']}"
+                for i, result in enumerate(search_results)
+            ])
+            
+            combined_input = f"{input_text}\n\nWeb Search Results:\n{search_context}"
+            
+            if is_reasoning_mode:
+                response = await self.generate_reasoned_response(
+                    combined_input,
+                    conversation_id=conversation_id,
+                    stream=stream
+                )
+            else:
+                response = await self.generate_simple_response(
+                    combined_input,
+                    conversation_id=conversation_id,
+                    stream=stream
+                )
+            
+            # Return both the response and search results
+            return {
+                'text': response,
+                'searchResults': search_results
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error generating web search response: {e}")
+            raise
+
     def clear_conversation(self, conversation_id: str) -> None:
         """Clear conversation history for a given ID."""
         self.llm_integration.clear_conversation(conversation_id)
