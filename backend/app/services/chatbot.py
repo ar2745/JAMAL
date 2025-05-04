@@ -25,6 +25,7 @@ class Chatbot:
     def __init__(
         self,
         api_url: str = "http://localhost:11434",
+        storage_folder: str = "storage",
         chats_folder: str = "chats",
         uploads_folder: str = "uploads",
         links_folder: str = "links"
@@ -47,12 +48,13 @@ class Chatbot:
         self.web_search_service = WebSearchService()
         
         # Setup directories
+        self.storage_folder = storage_folder
         self.chats_folder = chats_folder
         self.uploads_folder = uploads_folder
         self.links_folder = links_folder
         
         # Create directories if they don't exist
-        for folder in [chats_folder, uploads_folder, links_folder]:
+        for folder in [self.storage_folder, self.chats_folder, self.uploads_folder, self.links_folder]:
             os.makedirs(folder, exist_ok=True)
             
         # Initialize storage

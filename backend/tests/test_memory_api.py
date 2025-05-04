@@ -14,8 +14,9 @@ from fastapi.testclient import TestClient
 # Add the parent directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.chatbot import app
 from app.services.memory import MemoryManager
+
+from backend.app.main import app
 
 # Test configuration
 TEST_CONVERSATION_ID = "test_conversation_123"

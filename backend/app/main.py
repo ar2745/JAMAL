@@ -35,14 +35,11 @@ logger = logging.getLogger(__name__)
 configure_event_loop()
 
 # Configuration
-CHATS_FOLDER = 'chats'
-UPLOADS_FOLDER = 'uploads'
-LINKS_FOLDER = 'links'
+STORAGE_FOLDER = 'storage'
+CHATS_FOLDER = 'storage/chats'
+UPLOADS_FOLDER = 'storage/uploads'
+LINKS_FOLDER = 'storage/links'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'json', 'docx'}
-
-# Create necessary directories
-for folder in [CHATS_FOLDER, UPLOADS_FOLDER, LINKS_FOLDER]:
-    os.makedirs(folder, exist_ok=True)
 
 # Initialize FastAPI app with proper documentation settings
 app = FastAPI(
@@ -69,14 +66,9 @@ analytics_service = AnalyticsService()
 memory_manager = MemoryManager()
 llm_integration = LLMIntegration()
 response_generator = ResponseGenerator(llm_integration)
-chatbot = Chatbot("http://localhost:11434/api/generate")
+chatbot = Chatbot("http://localhost:11434/api/generate", STORAGE_FOLDER, CHATS_FOLDER, UPLOADS_FOLDER, LINKS_FOLDER)
 
-################################################## Configuration ##################################################
-CHATS_FOLDER = 'chats'
-UPLOADS_FOLDER = 'uploads'
-LINKS_FOLDER = 'links'
-ALLOWED_EXTENSIONS = {'pdf', 'txt', 'json', 'docx'}
-
+################################################## Load Persisted Data ##################################################
 # Load persisted data
 def load_persisted_data():
     """Load persisted documents and links from disk."""
@@ -722,7 +714,7 @@ if __name__ == "__main__":
     
     # Run the application
     uvicorn.run(
-        "chatbot:app",
+        "main:app",
         host="0.0.0.0",
         port=5000,
         loop="asyncio",

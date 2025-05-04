@@ -8,7 +8,7 @@ import aiohttp
 import chromadb
 import pytest
 
-from ..app.chatbot import asgi_app, chatbot
+from ..app.main import asgi_app, chatbot
 
 # Test configuration
 TEST_API_URL = "http://localhost:11434"  # Base URL for Ollama
