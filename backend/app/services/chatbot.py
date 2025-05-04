@@ -20,6 +20,8 @@ from .web_search import WebSearchService
 logger = logging.getLogger(__name__)
 
 class Chatbot:
+    """Main class for the chatbot application."""
+################################################## Chatbot Constructor ##################################################
     def __init__(
         self,
         api_url: str = "http://localhost:11434",
@@ -58,47 +60,7 @@ class Chatbot:
         self.links = {}
         self.load_persisted_data()
 
-    def load_persisted_data(self):
-        """Load persisted documents and links from disk."""
-        try:
-            # Load documents
-            for filename in os.listdir(self.uploads_folder):
-                if filename.endswith('.meta.json'):
-                    continue
-                filepath = os.path.join(self.uploads_folder, filename)
-                metadata_path = os.path.join(self.uploads_folder, f"{filename}.meta.json")
-                
-                if os.path.exists(metadata_path):
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                        self.documents[filename] = metadata.get('content', '')
-            
-            # Load links
-            for link_dir in os.listdir(self.links_folder):
-                link_path = os.path.join(self.links_folder, link_dir)
-                if not os.path.isdir(link_path):
-                    continue
-                    
-                metadata_path = os.path.join(link_path, 'meta.json')
-                content_path = os.path.join(link_path, 'content.txt')
-                
-                if os.path.exists(metadata_path) and os.path.exists(content_path):
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                    with open(content_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        
-                    self.links[link_dir] = {
-                        'url': metadata.get('url'),
-                        'title': metadata.get('title'),
-                        'description': metadata.get('description'),
-                        'image': metadata.get('image'),
-                        'content': content,
-                        'timestamp': metadata.get('timestamp')
-                    }
-        except Exception as e:
-            self.logger.error(f"Error loading persisted data: {e}")
-
+################################################## Message Processing ##################################################
     async def process_message(
         self,
         user_input: str,
@@ -206,100 +168,47 @@ class Chatbot:
             self.analytics_service.track_error("message_processing_error")
             raise
 
-    async def process_document(self, file_path: str, user_id: Optional[str] = None) -> Dict[str, Any]:
-        """Process an uploaded document.
-        
-        Args:
-            file_path: Path to the uploaded file
-            user_id: ID of the user uploading the file
-            
-        Returns:
-            Dictionary containing document metadata
-        """
+################################################## Persistence ##################################################
+    def load_persisted_data(self):
+        """Load persisted documents and links from disk."""
         try:
-            # Extract text from document
-            content = self.extract_text_from_file(file_path)
+            # Load documents
+            for filename in os.listdir(self.uploads_folder):
+                if filename.endswith('.meta.json'):
+                    continue
+                filepath = os.path.join(self.uploads_folder, filename)
+                metadata_path = os.path.join(self.uploads_folder, f"{filename}.meta.json")
+                
+                if os.path.exists(metadata_path):
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                        self.documents[filename] = metadata.get('content', '')
             
-            # Create metadata
-            metadata = {
-                'type': os.path.splitext(file_path)[1][1:],
-                'size': os.path.getsize(file_path),
-                'timestamp': datetime.utcnow().isoformat(),
-                'content': content
-            }
-            
-            # Store document
-            filename = os.path.basename(file_path)
-            self.documents[filename] = content
-            
-            # Track document upload
-            if user_id:
-                self.analytics_service.track_document_upload(
-                    'default',
-                    metadata['type'],
-                    metadata['size'],
-                    user_id
-                )
-            
-            return {
-                'filename': filename,
-                'metadata': metadata
-            }
-            
+            # Load links
+            for link_dir in os.listdir(self.links_folder):
+                link_path = os.path.join(self.links_folder, link_dir)
+                if not os.path.isdir(link_path):
+                    continue
+                    
+                metadata_path = os.path.join(link_path, 'meta.json')
+                content_path = os.path.join(link_path, 'content.txt')
+                
+                if os.path.exists(metadata_path) and os.path.exists(content_path):
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                    with open(content_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    self.links[link_dir] = {
+                        'url': metadata.get('url'),
+                        'title': metadata.get('title'),
+                        'description': metadata.get('description'),
+                        'image': metadata.get('image'),
+                        'content': content,
+                        'timestamp': metadata.get('timestamp')
+                    }
         except Exception as e:
-            self.logger.error(f"Error processing document: {e}")
-            self.analytics_service.track_error("document_processing_error")
-            raise
-
-    async def process_link(self, url: str, user_id: Optional[str] = None) -> Dict[str, Any]:
-        """Process a shared link.
-        
-        Args:
-            url: The URL to process
-            user_id: ID of the user sharing the link
-            
-        Returns:
-            Dictionary containing link metadata
-        """
-        try:
-            # Extract metadata from URL
-            metadata = await self.extract_metadata(url)
-            
-            # Create link ID
-            link_id = f"{url}_{datetime.utcnow().timestamp()}"
-            
-            # Store link
-            self.links[link_id] = {
-                'url': url,
-                'title': metadata.get('title'),
-                'description': metadata.get('description'),
-                'image': metadata.get('image'),
-                'content': metadata.get('content'),
-                'timestamp': datetime.utcnow().isoformat()
-            }
-            
-            # Track link share
-            if user_id:
-                domain = url.split('/')[2]  # Extract domain from URL
-                self.analytics_service.track_link_share(
-                    'default',
-                    domain,
-                    user_id
-                )
-            
-            return {
-                'link_id': link_id,
-                'metadata': self.links[link_id]
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error processing link: {e}")
-            self.analytics_service.track_error("link_processing_error")
-            raise
-
-    async def close(self):
-        """Clean up resources."""
-        await self.llm_integration.close()
+            self.logger.error(f"Error loading persisted data: {e}")
 
     def persist_document(self, filename: str, content: str, metadata: dict):
         """Persist document and its metadata to disk."""
@@ -335,40 +244,12 @@ class Chatbot:
                 f.write(link_data.get('content', ''))
         except Exception as e:
             self.logger.error(f"Error persisting link: {e}")
+    
+    async def close(self):
+        """Clean up resources."""
+        await self.llm_integration.close()
 
-    def preprocess_input(self, user_input: str) -> str:
-        """Preprocess user input by stripping whitespace and converting to lowercase."""
-        return user_input.strip().lower()
-
-    async def get_reasoned_response(self, user_input: str) -> str:
-        """Get a reasoned response using the advanced model."""
-        processed_input = self.preprocess_input(user_input)
-        return await self.llm_integration.generate_response(
-            processed_input,
-            model_type=ModelType.REASONED
-        )
-
-    async def get_simple_response(self, user_input: str) -> str:
-        """Get a simple response using the basic model."""
-        processed_input = self.preprocess_input(user_input)
-        return await self.llm_integration.generate_response(
-            processed_input,
-            model_type=ModelType.SIMPLE
-        )
-
-    def extract_text_from_file(self, filepath: str) -> str:
-        """Extract text from various file types."""
-        ext = filepath.rsplit('.', 1)[1].lower()
-        if ext == 'pdf':
-            return self.extract_text_from_pdf(filepath)
-        elif ext == 'txt':
-            return self.extract_text_from_txt(filepath)
-        elif ext == 'json':
-            return self.extract_text_from_json(filepath)
-        elif ext == 'docx':
-            return self.extract_text_from_docx(filepath)
-        return ""
-
+################################################## File Processing ##################################################
     def extract_text_from_pdf(self, filepath: str) -> str:
         """Extract text from PDF file."""
         text = ""
@@ -414,27 +295,20 @@ class Chatbot:
         except Exception as e:
             return f"Error: {e}"
 
-    async def extract_data_from_web_page(self, url: str) -> Dict[str, Any]:
-        """Extract data from a web page."""
-        try:
-            # Extract metadata
-            metadata = self.extract_metadata(url)
-            
-            # Create link data structure
-            link_data = {
-                'url': url,
-                'title': metadata.get('title'),
-                'description': metadata.get('description'),
-                'image': metadata.get('image'),
-                'content': metadata.get('content'),
-                'timestamp': datetime.utcnow().isoformat()
-            }
-            
-            return link_data
-        except Exception as e:
-            self.logger.error(f"Error extracting data from web page: {e}")
-            raise
+    def extract_text_from_file(self, filepath: str) -> str:
+        """Extract text from various file types."""
+        ext = filepath.rsplit('.', 1)[1].lower()
+        if ext == 'pdf':
+            return self.extract_text_from_pdf(filepath)
+        elif ext == 'txt':
+            return self.extract_text_from_txt(filepath)
+        elif ext == 'json':
+            return self.extract_text_from_json(filepath)
+        elif ext == 'docx':
+            return self.extract_text_from_docx(filepath)
+        return ""
 
+################################################## Web Processing ##################################################
     def extract_metadata(self, url: str) -> Dict[str, Optional[str]]:
         """Extract metadata from a web page."""
         try:
@@ -497,9 +371,30 @@ class Chatbot:
                 'description': description,
                 'image': image,
                 'content': soup.get_text(separator=' ', strip=True)
-            }
-            
+            }        
         except requests.exceptions.RequestException as e:
             raise Exception(f'Failed to fetch URL: {str(e)}')
         except Exception as e:
-            raise Exception(f'An error occurred: {str(e)}') 
+            raise Exception(f'An error occurred: {str(e)}')
+
+    async def extract_data_from_web_page(self, url: str) -> Dict[str, Any]:
+        """Extract data from a web page."""
+        try:
+            # Extract metadata
+            metadata = self.extract_metadata(url)
+            
+            # Create link data structure
+            link_data = {
+                'url': url,
+                'title': metadata.get('title'),
+                'description': metadata.get('description'),
+                'image': metadata.get('image'),
+                'content': metadata.get('content'),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            return link_data
+        except Exception as e:
+            self.logger.error(f"Error extracting data from web page: {e}")
+            raise
+ 

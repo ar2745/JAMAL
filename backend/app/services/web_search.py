@@ -40,7 +40,7 @@ class WebSearchService:
             encoded_query = quote_plus(query)
             
             # Construct the search URL for DuckDuckGo HTML endpoint
-            search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+            search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}&df=d"
             self.logger.info(f"Searching DuckDuckGo with URL: {search_url}")
             
             # Update headers for HTML endpoint
